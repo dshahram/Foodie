@@ -1,13 +1,2037 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>foodie-build</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foodie 🍽️</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+
+function getWeekDates(weekOffset = 0) {
+  const today = new Date();
+  const dow = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((dow + 6) % 7) + weekOffset * 7);
+  return DAYS.map((_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+}
+const CATEGORIES = ["Produce","Meat & Seafood","Dairy & Eggs","Bread & Bakery","Pantry & Dry Goods","Frozen","Beverage","Other"];
+
+function generateId() { return Math.random().toString(36).slice(2,9); }
+
+function parseFraction(val) {
+  if (!val && val !== 0) return 0;
+  const str = String(val).trim();
+  const fractions = { "¼":0.25, "½":0.5, "¾":0.75, "⅓":0.333, "⅔":0.667, "⅛":0.125, "⅜":0.375, "⅝":0.625, "⅞":0.875 };
+  if (fractions[str] !== undefined) return fractions[str];
+  // Handle mixed like "1½" or "1 ½"
+  for (const [f, v] of Object.entries(fractions)) {
+    if (str.includes(f)) {
+      const whole = parseFloat(str.replace(f, "").trim()) || 0;
+      return whole + v;
+    }
+  }
+  return parseFloat(str) || 0;
+}
+
+function loadState(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
+}
+function saveState(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+const INGREDIENT_DEFAULTS = {
+  // Produce
+  "garlic": { qty:"3", unit:"clove" }, "garlic clove": { qty:"3", unit:"clove" },
+  "onion": { qty:"1", unit:"" }, "red onion": { qty:"1", unit:"" },
+  "tomato": { qty:"2", unit:"" }, "cherry tomato": { qty:"200", unit:"g" },
+  "lemon": { qty:"1", unit:"" }, "lime": { qty:"1", unit:"" },
+  "avocado": { qty:"1", unit:"" }, "spinach": { qty:"100", unit:"g" },
+  "kale": { qty:"100", unit:"g" }, "lettuce": { qty:"1", unit:"" },
+  "carrot": { qty:"2", unit:"" }, "celery": { qty:"2", unit:"stalk" },
+  "bell pepper": { qty:"1", unit:"" }, "cucumber": { qty:"1", unit:"" },
+  "potato": { qty:"2", unit:"" }, "sweet potato": { qty:"1", unit:"" },
+  "broccoli": { qty:"1", unit:"head" }, "mushroom": { qty:"150", unit:"g" },
+  "zucchini": { qty:"1", unit:"" }, "ginger": { qty:"1", unit:"tsp" },
+  "jalapeño": { qty:"1", unit:"" }, "corn": { qty:"1", unit:"" },
+  "banana": { qty:"2", unit:"" }, "apple": { qty:"2", unit:"" },
+  "strawberry": { qty:"200", unit:"g" }, "blueberry": { qty:"150", unit:"g" },
+  // Meat & Seafood
+  "chicken breast": { qty:"2", unit:"" }, "chicken thigh": { qty:"4", unit:"" },
+  "chicken": { qty:"400", unit:"g" }, "ground beef": { qty:"500", unit:"g" },
+  "beef": { qty:"400", unit:"g" }, "steak": { qty:"2", unit:"" },
+  "salmon": { qty:"2", unit:"fillet" }, "shrimp": { qty:"300", unit:"g" },
+  "tuna": { qty:"1", unit:"can" }, "bacon": { qty:"6", unit:"slice" },
+  "sausage": { qty:"4", unit:"" }, "pork": { qty:"400", unit:"g" },
+  "lamb": { qty:"400", unit:"g" }, "turkey": { qty:"400", unit:"g" },
+  // Dairy & Eggs
+  "egg": { qty:"4", unit:"" }, "eggs": { qty:"4", unit:"" },
+  "milk": { qty:"250", unit:"ml" }, "butter": { qty:"50", unit:"g" },
+  "cream": { qty:"150", unit:"ml" }, "heavy cream": { qty:"150", unit:"ml" },
+  "sour cream": { qty:"100", unit:"g" }, "cream cheese": { qty:"100", unit:"g" },
+  "cheddar": { qty:"100", unit:"g" }, "mozzarella": { qty:"125", unit:"g" },
+  "parmesan": { qty:"50", unit:"g" }, "feta": { qty:"100", unit:"g" },
+  "greek yogurt": { qty:"200", unit:"g" }, "yogurt": { qty:"200", unit:"g" },
+  // Pantry
+  "olive oil": { qty:"2", unit:"tbsp" }, "vegetable oil": { qty:"2", unit:"tbsp" },
+  "salt": { qty:"1", unit:"tsp" }, "pepper": { qty:"½", unit:"tsp" },
+  "black pepper": { qty:"½", unit:"tsp" }, "sugar": { qty:"2", unit:"tbsp" },
+  "brown sugar": { qty:"2", unit:"tbsp" }, "flour": { qty:"200", unit:"g" },
+  "rice": { qty:"200", unit:"g" }, "pasta": { qty:"200", unit:"g" },
+  "spaghetti": { qty:"200", unit:"g" }, "bread": { qty:"4", unit:"slice" },
+  "soy sauce": { qty:"2", unit:"tbsp" }, "hot sauce": { qty:"1", unit:"tbsp" },
+  "tomato sauce": { qty:"400", unit:"g" }, "tomato paste": { qty:"2", unit:"tbsp" },
+  "chicken stock": { qty:"500", unit:"ml" }, "vegetable stock": { qty:"500", unit:"ml" },
+  "coconut milk": { qty:"400", unit:"ml" }, "honey": { qty:"2", unit:"tbsp" },
+  "maple syrup": { qty:"2", unit:"tbsp" }, "vinegar": { qty:"1", unit:"tbsp" },
+  "cumin": { qty:"1", unit:"tsp" }, "paprika": { qty:"1", unit:"tsp" },
+  "oregano": { qty:"1", unit:"tsp" }, "basil": { qty:"1", unit:"tsp" },
+  "cinnamon": { qty:"½", unit:"tsp" }, "turmeric": { qty:"½", unit:"tsp" },
+  "chili powder": { qty:"1", unit:"tsp" }, "garlic powder": { qty:"½", unit:"tsp" },
+  "baking powder": { qty:"1", unit:"tsp" }, "baking soda": { qty:"½", unit:"tsp" },
+  "vanilla extract": { qty:"1", unit:"tsp" }, "cornstarch": { qty:"1", unit:"tbsp" },
+  // Bread & Bakery
+  "tortilla": { qty:"4", unit:"" }, "pita": { qty:"2", unit:"" },
+  "bagel": { qty:"2", unit:"" }, "bun": { qty:"4", unit:"" },
+  // Beverages
+  "water": { qty:"500", unit:"ml" }, "orange juice": { qty:"200", unit:"ml" },
+};
+
+function guessDefaults(name) {
+  const n = name.toLowerCase().trim();
+  return INGREDIENT_DEFAULTS[n] || null;
+}
+
+function guessCategory(name) {
+  const n = name.toLowerCase();
+  if (/chicken|beef|pork|ham|turkey|salmon|shrimp|bacon|sausage|tuna|lamb/.test(n)) return "Meat & Seafood";
+  if (/milk|cheese|butter|egg|cream|yogurt|mozzarella|cheddar|parmesan/.test(n)) return "Dairy & Eggs";
+  if (/bread|bun|roll|bagel|tortilla|wrap|pita/.test(n)) return "Bread & Bakery";
+  if (/apple|banana|orange|lettuce|spinach|tomato|onion|garlic|pepper|carrot|broccoli|cucumber|lemon|lime|avocado|mushroom|potato|zucchini|celery|kale/.test(n)) return "Produce";
+  if (/frozen|ice cream/.test(n)) return "Frozen";
+  if (/juice|water|soda|coffee|tea|wine|beer/.test(n)) return "Beverage";
+  if (/oil|salt|pepper|sugar|flour|rice|pasta|sauce|vinegar|spice|cumin|paprika|oregano|basil|cinnamon|honey|syrup|stock|broth|can|jar/.test(n)) return "Pantry & Dry Goods";
+  return "Other";
+}
+
+async function callClaude(prompt, systemPrompt, maxTokens = 1000) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: maxTokens,
+      system: systemPrompt || "You are a helpful meal prep assistant.",
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`API error ${res.status}: ${err?.error?.message || res.statusText}`);
+  }
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.content?.map(b => b.text || "").join("") || "";
+}
+
+// ── Propagate Modal ───────────────────────────────────────────────────────────
+function PropagateModal({ meal, currentDay, allDays, onPropagate, onClose }) {
+  const otherDays = (allDays || DAYS).filter(d => d !== currentDay);
+  const [selected, setSelected] = useState(new Set());
+
+  function toggle(day) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(day) ? next.delete(day) : next.add(day);
+      return next;
+    });
+  }
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modal}>
+        <h3 style={{ margin:"0 0 6px", fontSize:17, fontWeight:700 }}>
+          Duplicate "{meal.name || "this meal"}"
+        </h3>
+        <p style={{ color:"#888", fontSize:13, margin:"0 0 16px" }}>
+          Choose which days to copy this meal to:
+        </p>
+
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <span style={styles.label}>Days</span>
+          <button
+            onClick={() => setSelected(selected.size === otherDays.length ? new Set() : new Set(otherDays))}
+            style={styles.smallBtn}>
+            {selected.size === otherDays.length ? "Deselect All" : "Select All"}
+          </button>
+        </div>
+
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:20 }}>
+          {otherDays.map(day => {
+            const isIso = /^\d{4}-\d{2}-\d{2}$/.test(day);
+            const label = isIso
+              ? new Date(day + 'T00:00:00').toLocaleDateString("en-US", { weekday:"short", month:"numeric", day:"numeric" })
+              : day;
+            return (
+              <button key={day} onClick={() => toggle(day)}
+                style={{ ...styles.dayPill, ...(selected.has(day) ? styles.dayPillActive : {}) }}>
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onClose} style={styles.outlineBtn}>Cancel</button>
+          <button
+            disabled={selected.size === 0}
+            onClick={() => { onPropagate([...selected]); onClose(); }}
+            style={{ ...styles.primaryBtn, flex:1, opacity: selected.size===0 ? 0.5 : 1 }}>
+            Copy to {selected.size} day{selected.size !== 1 ? "s" : ""}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Ingredient Row ────────────────────────────────────────────────────────────
+const QTY_SUGGESTIONS = ["¼","½","¾","1","2","3","4","5","6","8","10","12","100","150","200","250","300","400","500"];
+const UNIT_SUGGESTIONS = ["whole","g","kg","ml","l","tsp","tbsp","cup","oz","lb","slice","piece","clove","handful","pinch","bunch","can","pack","loaf","fillet","scoop"];
+
+function SuggestInput({ value, onChange, suggestions, placeholder, width, style: extraStyle }) {
+  const [focused, setFocused] = useState(false);
+  const wrapRef = useRef(null);
+
+  const filtered = value.trim() === ""
+    ? suggestions.slice(0, 10)
+    : suggestions.filter(s => s.toLowerCase().startsWith(value.toLowerCase()) && s !== value).slice(0, 8);
+
+  const showDropdown = focused && filtered.length > 0;
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setFocused(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={{ position:"relative", width }}>
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        style={{ ...styles.inputSm, width:"100%", boxSizing:"border-box", ...extraStyle }}
+      />
+      {showDropdown && (
+        <div style={{ ...styles.suggestionDropdown, minWidth:90 }}>
+          {filtered.map(s => (
+            <div key={s} style={styles.suggestionItem}
+              onMouseEnter={e => e.currentTarget.style.background="#f5f3ff"}
+              onMouseLeave={e => e.currentTarget.style.background="transparent"}
+              onMouseDown={e => { e.preventDefault(); onChange(s); setFocused(false); }}>
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const INGREDIENT_EMOJIS = {
+  // Produce
+  "garlic":"🧄","onion":"🧅","red onion":"🧅","shallot":"🧅",
+  "tomato":"🍅","cherry tomato":"🍅","cherry tomatoes":"🍅","sun-dried tomato":"🍅",
+  "lemon":"🍋","lime":"🍋","orange":"🍊","grapefruit":"🍊",
+  "avocado":"🥑","spinach":"🥬","kale":"🥬","lettuce":"🥬","arugula":"🥬","cabbage":"🥬",
+  "carrot":"🥕","celery":"🥦","broccoli":"🥦","cauliflower":"🥦","brussels sprouts":"🥦",
+  "bell pepper":"🫑","red pepper":"🫑","green pepper":"🫑","jalapeño":"🌶️","chili":"🌶️",
+  "cucumber":"🥒","zucchini":"🥒","pickle":"🥒",
+  "potato":"🥔","sweet potato":"🍠","yam":"🍠",
+  "mushroom":"🍄","portobello":"🍄","shiitake":"🍄",
+  "corn":"🌽","peas":"🫛","edamame":"🫛","green beans":"🫛","snap peas":"🫛",
+  "eggplant":"🍆","beet":"🫚","radish":"🌱","asparagus":"🌱","leek":"🌱",
+  "ginger":"🫚","turmeric":"🫚",
+  "banana":"🍌","apple":"🍎","pear":"🍐","peach":"🍑","mango":"🥭",
+  "strawberry":"🍓","strawberries":"🍓","blueberry":"🫐","blueberries":"🫐",
+  "grape":"🍇","grapes":"🍇","watermelon":"🍉","pineapple":"🍍","coconut":"🥥",
+  "cherry":"🍒","cherries":"🍒","raspberry":"🍓","raspberries":"🍓",
+  // Meat & Seafood
+  "chicken":"🍗","chicken breast":"🍗","chicken thigh":"🍗","chicken wing":"🍗","rotisserie chicken":"🍗",
+  "beef":"🥩","steak":"🥩","ground beef":"🥩","ribeye":"🥩","brisket":"🥩",
+  "pork":"🥩","bacon":"🥓","ham":"🥩","sausage":"🌭","chorizo":"🌭",
+  "lamb":"🥩","turkey":"🦃","duck":"🦆",
+  "salmon":"🐟","tuna":"🐟","cod":"🐟","tilapia":"🐟","halibut":"🐟","sardine":"🐟",
+  "shrimp":"🍤","prawn":"🍤","crab":"🦀","lobster":"🦞","scallop":"🐚","clam":"🐚",
+  "egg":"🥚","eggs":"🥚","egg white":"🥚","egg yolk":"🥚",
+  // Dairy
+  "milk":"🥛","almond milk":"🥛","oat milk":"🥛","soy milk":"🥛","coconut milk":"🥥",
+  "butter":"🧈","cream":"🫙","heavy cream":"🫙","sour cream":"🫙","cream cheese":"🧀",
+  "cheddar":"🧀","mozzarella":"🧀","parmesan":"🧀","feta":"🧀","brie":"🧀","gouda":"🧀",
+  "cheese":"🧀","yogurt":"🥛","greek yogurt":"🥛",
+  // Grains & Bread
+  "rice":"🍚","brown rice":"🍚","white rice":"🍚","jasmine rice":"🍚","basmati":"🍚",
+  "pasta":"🍝","spaghetti":"🍝","penne":"🍝","fettuccine":"🍝","linguine":"🍝","noodle":"🍜","ramen":"🍜",
+  "bread":"🍞","sourdough":"🍞","baguette":"🥖","ciabatta":"🥖","pita":"🫓","tortilla":"🫓","wrap":"🫓",
+  "bagel":"🥯","bun":"🍞","croissant":"🥐","roll":"🍞",
+  "flour":"🌾","oats":"🌾","quinoa":"🌾","couscous":"🌾","barley":"🌾",
+  // Pantry
+  "olive oil":"🫒","oil":"🫙","vegetable oil":"🫙","sesame oil":"🫙","coconut oil":"🥥",
+  "salt":"🧂","pepper":"🧂","black pepper":"🧂",
+  "sugar":"🍬","brown sugar":"🍬","honey":"🍯","maple syrup":"🍯","agave":"🍯",
+  "soy sauce":"🫙","hot sauce":"🌶️","sriracha":"🌶️","fish sauce":"🫙","worcestershire":"🫙",
+  "tomato sauce":"🍅","marinara":"🍅","tomato paste":"🍅","ketchup":"🍅","salsa":"🍅",
+  "stock":"🫙","chicken stock":"🍗","vegetable stock":"🥦","beef stock":"🥩","broth":"🫙",
+  "vinegar":"🫙","balsamic":"🫙","lemon juice":"🍋","lime juice":"🍋",
+  "mustard":"🌭","mayo":"🫙","mayonnaise":"🫙","ranch":"🫙","hummus":"🫘",
+  "cumin":"🌿","paprika":"🌿","oregano":"🌿","basil":"🌿","thyme":"🌿","rosemary":"🌿",
+  "cilantro":"🌿","parsley":"🌿","mint":"🌿","dill":"🌿","chives":"🌿","sage":"🌿",
+  "cinnamon":"🌿","nutmeg":"🌿","cardamom":"🌿","clove":"🌿","bay leaf":"🌿",
+  "chili powder":"🌶️","cayenne":"🌶️","garlic powder":"🧄","onion powder":"🧅","paprika":"🌿",
+  "baking powder":"🥄","baking soda":"🥄","yeast":"🥄","vanilla":"🍶","vanilla extract":"🍶",
+  "cornstarch":"🥄","flour":"🌾","cocoa":"🍫","chocolate":"🍫","dark chocolate":"🍫",
+  // Beans & Legumes
+  "chickpeas":"🫘","black beans":"🫘","kidney beans":"🫘","lentils":"🫘","beans":"🫘",
+  "tofu":"🫙","tempeh":"🫙",
+  // Nuts & Seeds
+  "almond":"🌰","almonds":"🌰","walnut":"🌰","walnuts":"🌰","cashew":"🌰","cashews":"🌰",
+  "peanut":"🥜","peanuts":"🥜","peanut butter":"🥜","almond butter":"🌰",
+  "sesame":"🌱","sesame seeds":"🌱","sunflower seeds":"🌻","chia seeds":"🌱","flax seeds":"🌱",
+  // Beverages & Other
+  "water":"💧","wine":"🍷","red wine":"🍷","white wine":"🍷","beer":"🍺",
+  "lemon juice":"🍋","orange juice":"🍊","broth":"🫙",
+};
+
+function getIngredientEmoji(name) {
+  const n = name.toLowerCase().trim();
+  if (INGREDIENT_EMOJIS[n]) return INGREDIENT_EMOJIS[n];
+  // Partial match
+  for (const [key, emoji] of Object.entries(INGREDIENT_EMOJIS)) {
+    if (n.includes(key) || key.includes(n)) return emoji;
+  }
+  return "";
+}
+
+const COMMON_INGREDIENTS = [
+  "Garlic","Onion","Red Onion","Tomato","Cherry Tomatoes","Lemon","Lime","Avocado","Spinach","Kale",
+  "Lettuce","Carrot","Celery","Bell Pepper","Cucumber","Potato","Sweet Potato","Broccoli","Mushroom",
+  "Zucchini","Ginger","Jalapeño","Corn","Banana","Apple","Strawberries","Blueberries","Egg","Eggs",
+  "Milk","Butter","Heavy Cream","Sour Cream","Cream Cheese","Cheddar Cheese","Mozzarella","Parmesan",
+  "Feta Cheese","Greek Yogurt","Chicken Breast","Chicken Thigh","Ground Beef","Steak","Salmon Fillet",
+  "Shrimp","Tuna","Bacon","Sausage","Pork","Lamb","Turkey","Olive Oil","Vegetable Oil","Salt","Pepper",
+  "Sugar","Brown Sugar","Flour","Rice","Pasta","Spaghetti","Bread","Soy Sauce","Hot Sauce","Tomato Sauce",
+  "Tomato Paste","Chicken Stock","Vegetable Stock","Coconut Milk","Honey","Maple Syrup","Vinegar",
+  "Cumin","Paprika","Oregano","Basil","Cinnamon","Turmeric","Chili Powder","Garlic Powder",
+  "Baking Powder","Vanilla Extract","Cornstarch","Tortilla","Pita Bread","Bagel","Hummus",
+  "Chickpeas","Black Beans","Lentils","Quinoa","Oats","Almond Milk","Tofu","Tempeh","Edamame",
+];
+
+function IngredientNameInput({ value, onChange, onSelect }) {
+  const [focused, setFocused] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const wrapRef = useRef(null);
+
+  const filtered = value.trim().length === 0 ? [] :
+    COMMON_INGREDIENTS.filter(s => s.toLowerCase().includes(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()).slice(0, 7);
+
+  const showDropdown = focused && filtered.length > 0;
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setFocused(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  async function selectIngredient(name) {
+    setFocused(false);
+    setAiLoading(true);
+    try {
+      const raw = await callClaude(
+        `For the ingredient "${name}", suggest a typical home cooking quantity. Return ONLY a JSON object: {"qty":"2","unit":"tbsp","category":"Pantry & Dry Goods"}. Categories: Produce, Meat & Seafood, Dairy & Eggs, Bread & Bakery, Pantry & Dry Goods, Frozen, Beverages, Other. No markdown.`,
+        "You are a cooking assistant. Return only valid JSON."
+      );
+      const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      onSelect({ name, qty: String(parsed.qty || ""), unit: String(parsed.unit || ""), category: parsed.category || guessCategory(name), emoji: getIngredientEmoji(name) });
+    } catch {
+      onSelect({ name, qty: "", unit: "", category: guessCategory(name) });
+    }
+    setAiLoading(false);
+  }
+
+  async function handleKeyDown(e) {
+    if ((e.key === "Enter" || e.key === "Tab") && value.trim().length >= 2) {
+      e.preventDefault();
+      await selectIngredient(value.trim());
+    }
+  }
+
+  return (
+    <div ref={wrapRef} style={{ flex:1, position:"relative" }}>
+      <input
+        placeholder="Ingredient"
+        value={aiLoading ? "✦ Looking up…" : value}
+        disabled={aiLoading}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onKeyDown={handleKeyDown}
+        style={{
+          ...styles.inputSm, width:"100%", boxSizing:"border-box",
+          textDecoration: "none", color: aiLoading ? "#aaa" : "#1a1a1a"
+        }}
+      />
+      {showDropdown && (
+        <div style={{ ...styles.suggestionDropdown, zIndex:300 }}>
+          {filtered.map(s => {
+            const idx = s.toLowerCase().indexOf(value.toLowerCase());
+            return (
+              <div key={s} style={styles.suggestionItem}
+                onMouseEnter={e => e.currentTarget.style.background="#f0fdf4"}
+                onMouseLeave={e => e.currentTarget.style.background="transparent"}
+                onMouseDown={e => { e.preventDefault(); selectIngredient(s); }}>
+                <span>{s.slice(0, idx)}</span>
+                <span style={{ background:"#ede9fe", color:"#5b21b6", borderRadius:3 }}>{s.slice(idx, idx + value.length)}</span>
+                <span>{s.slice(idx + value.length)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IngredientRow({ ing, onChange, onRemove, onAddToPantry }) {
+  return (
+    <div style={{ display:"flex", gap:6, alignItems:"center", marginBottom:6, flexWrap:"wrap" }}>
+      {ing.emoji ? (
+        <span style={{ fontSize:22, lineHeight:1, flexShrink:0, width:28, textAlign:"center" }}>{ing.emoji}</span>
+      ) : (
+        <span style={{ width:28, flexShrink:0 }} />
+      )}
+      <div style={{ flex:"1 1 140px", minWidth:120 }}>
+        <IngredientNameInput
+          value={ing.name}
+          onChange={name => onChange({ ...ing, name })}
+          onSelect={({ name, qty, unit, category, emoji }) => onChange({
+            ...ing, name,
+            qty: qty || ing.qty,
+            unit: unit || ing.unit,
+            category: category || ing.category,
+            emoji: emoji || ing.emoji || "",
+          })}
+        />
+      </div>
+      <SuggestInput
+        value={ing.qty}
+        onChange={v => onChange({ ...ing, qty: v })}
+        suggestions={QTY_SUGGESTIONS}
+        placeholder="Qty"
+        width={60}
+      />
+      <SuggestInput
+        value={ing.unit}
+        onChange={v => onChange({ ...ing, unit: v })}
+        suggestions={UNIT_SUGGESTIONS}
+        placeholder="Unit"
+        width={76}
+      />
+      <select
+        value={ing.category}
+        onChange={e => onChange({ ...ing, category: e.target.value })}
+        style={{ ...styles.selectSm, flex:"1 1 100px", minWidth:90 }}
+      >
+        {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+      </select>
+      <label
+        title="I already have this — skip it on the shopping list"
+        style={{ display:"flex", alignItems:"center", gap:4, cursor:"pointer", userSelect:"none", flexShrink:0 }}>
+        <input
+          type="checkbox"
+          checked={!!ing.inPantry}
+          onChange={e => {
+            const checked = e.target.checked;
+            onChange({ ...ing, inPantry: checked });
+            if (checked && ing.name.trim()) onAddToPantry(ing);
+          }}
+          style={{ accentColor:"#2a7a2a", width:14, height:14, cursor:"pointer" }}
+        />
+        <span style={{ fontSize:12, color: ing.inPantry ? "#2a7a2a" : "#aaa", fontWeight: ing.inPantry ? 600 : 400, display:"flex", alignItems:"center", gap:3 }}>
+          🧺 <span style={{ fontSize:11 }}>In pantry</span>
+        </span>
+      </label>
+      <button onClick={onRemove} style={{ ...styles.iconBtn, flexShrink:0 }}>✕</button>
+    </div>
+  );
+}
+
+
+// ── Nutrition Panel ───────────────────────────────────────────────────────────
+const NUTRIENTS = [
+  { key:"calories", label:"Calories", unit:"kcal", color:"#e07a2a", dv:2000 },
+  { key:"protein",  label:"Protein",  unit:"g",    color:"#2a7a2a", dv:50   },
+  { key:"carbs",    label:"Carbs",    unit:"g",    color:"#2a6aba", dv:275  },
+  { key:"sugar",    label:"Sugar",    unit:"g",    color:"#ba2a6a", dv:50   },
+  { key:"fat",      label:"Fat",      unit:"g",    color:"#8a6a2a", dv:78   },
+  { key:"fiber",    label:"Fiber",    unit:"g",    color:"#2a8a6a", dv:28   },
+  { key:"sodium",   label:"Sodium",   unit:"mg",   color:"#6a2a8a", dv:2300 },
+];
+
+function NutritionPanel({ meal }) {
+  const [nutrition, setNutrition] = useState(meal.nutrition || null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function analyze() {
+    const ings = meal.ingredients.filter(i => i.name.trim());
+    if (ings.length === 0) { setError("Add ingredients first."); return; }
+    setLoading(true); setError("");
+    try {
+      const ingList = ings.map(i => `${i.qty || 1} ${i.unit} ${i.name}`).join(", ");
+      const scale = parseFloat(meal.servings)||1;
+      const raw = await callClaude(
+        `Calculate total nutrition for this meal (${scale} total serving${scale!==1?"s":""}) with these ingredients: ${ingList}.
+Return ONLY a JSON object with these exact keys: calories, protein, carbs, sugar, fat, fiber, sodium.
+All values as numbers. calories in kcal, sodium in mg, everything else in grams. No markdown.`,
+        "You are a nutrition expert. Return only a valid JSON object with numeric values."
+      );
+      const parsed = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      setNutrition(parsed);
+    } catch { setError("Analysis failed. Try again."); }
+    setLoading(false);
+  }
+
+  return (
+    <div style={styles.nutritionBox}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: nutrition ? 12 : 0 }}>
+        <span style={styles.label}>Nutrition Summary</span>
+        <button onClick={analyze} disabled={loading}
+          style={{ ...styles.smallBtn, background:"#fff4e8", color:"#e07a2a", borderColor:"#f0c898" }}>
+          {loading ? "⏳ Analyzing…" : nutrition ? "↺ Recalculate" : "✦ Analyze Nutrition"}
+        </button>
+        {error && <span style={{ fontSize:12, color:"#e55", marginLeft:8 }}>{error}</span>}
+      </div>
+
+      {nutrition && (
+        <>
+          <div style={{ display:"flex", flexDirection:"column", gap:8, marginTop:10 }}>
+            {NUTRIENTS.map(n => {
+              const val = typeof nutrition[n.key] === "number" ? Math.round(nutrition[n.key]) : null;
+              const pct = val !== null ? Math.min(Math.round((val / n.dv) * 100), 999) : null;
+              const barWidth = val !== null ? Math.min((val / n.dv) * 100, 100) : 0;
+              const barColor = barWidth > 90 ? "#e11d48" : barWidth > 65 ? "#f59e0b" : n.color;
+              return (
+                <div key={n.key} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"9px 12px", boxShadow:C.shadow }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:5 }}>
+                    <span style={{ fontSize:12, fontWeight:600, color:C.inkMid }}>{n.label}</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:n.color }}>{val ?? "—"} <span style={{ fontSize:11, fontWeight:400, color:"#aaa" }}>{n.unit}</span></span>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{ position:"relative", height:18, background:"#f3f4f6", borderRadius:20, overflow:"hidden" }}>
+                    <div style={{
+                      position:"absolute", left:0, top:0, height:"100%",
+                      width:`${barWidth}%`,
+                      background:`linear-gradient(90deg, ${barColor}99, ${barColor})`,
+                      borderRadius:20,
+                      transition:"width .6s ease",
+                      boxShadow:`0 0 8px ${barColor}55`
+                    }} />
+                    {pct !== null && (
+                      <span style={{
+                        position:"absolute", right:8, top:"50%", transform:"translateY(-50%)",
+                        fontSize:10, fontWeight:700,
+                        color: barWidth > 40 ? "#fff" : C.inkMid,
+                        mixBlendMode: barWidth > 40 ? "normal" : "normal",
+                        zIndex:1, letterSpacing:".02em"
+                      }}>
+                        {pct}% DV
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize:11, color:"#bbb", margin:"8px 0 0" }}>
+            Based on 2,000 kcal/day daily values. Estimates for {parseFloat(meal.servings)||1} serving{(parseFloat(meal.servings)||1)!==1?"s":""}. Approximate.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Meal Chat ─────────────────────────────────────────────────────────────────
+function MealChat({ meal, onUpdateIngredients }) {
+  const [messages, setMessages] = useState([
+    { role:"assistant", text:"Hi! Tell me how you'd like to customize your meal" }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior:"smooth" });
+  }, [messages]);
+
+  async function send() {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+
+    const userMsg = { role:"user", text };
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setLoading(true);
+
+    const ingredientList = meal.ingredients.filter(i => i.name.trim())
+      .map(i => `${i.qty} ${i.unit} ${i.name}`).join(", ");
+
+    const history = newMessages.map(m => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.text
+    }));
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: `You are a helpful meal prep assistant. The user is editing a meal called "${meal.name || "this meal"}" (${parseFloat(meal.servings)||1} total servings).
+Current ingredients: ${ingredientList || "none yet"}.
+
+When the user asks to modify ingredients (add, remove, swap, adjust quantities, or convert units), you MUST:
+1. Reply conversationally in 1-2 sentences explaining what you changed.
+2. Then output a JSON block on its own line in this exact format:
+INGREDIENTS_UPDATE: [{"name":"egg","qty":"4","unit":"large","category":"Dairy & Eggs","inPantry":false},...]
+
+Unit conversion examples: "convert to pounds" → change unit to "lb" and convert qty accurately. "use cups instead of ml" → convert ml to cups. Always do the math correctly when converting units.
+Categories must be one of: Produce, Meat & Seafood, Dairy & Eggs, Bread & Bakery, Pantry & Dry Goods, Frozen, Beverages, Other.
+If the user is just asking a question (not requesting changes), answer conversationally with NO JSON block.`,
+          messages: history
+        })
+      });
+      const data = await res.json();
+      const raw = data.content?.map(b => b.text || "").join("") || "";
+
+      // Parse out ingredient update if present
+      const updateMatch = raw.match(/INGREDIENTS_UPDATE:\s*(\[[\s\S]*?\])/);
+      let displayText = raw.replace(/INGREDIENTS_UPDATE:\s*\[[\s\S]*?\]/, "").trim();
+
+      if (updateMatch) {
+        try {
+          const parsed = JSON.parse(updateMatch[1]);
+          const newIngs = parsed.map(i => ({ ...i, id: generateId(), qty: String(i.qty||"") }));
+          onUpdateIngredients(newIngs);
+          if (!displayText) displayText = "Done! I've updated your ingredients.";
+        } catch {
+          displayText = displayText || "Updated your ingredients!";
+        }
+      }
+
+      setMessages(prev => [...prev, { role:"assistant", text: displayText }]);
+    } catch {
+      setMessages(prev => [...prev, { role:"assistant", text:"Sorry, something went wrong. Try again." }]);
+    }
+    setLoading(false);
+  }
+
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  }
+
+  return (
+    <div style={styles.chatBox}>
+      <span style={{ ...styles.label, display:"block", marginBottom:8 }}>✦ Meal Assistant</span>
+      <div style={styles.chatMessages}>
+        {messages.map((m, i) => (
+          <div key={i} style={{
+            ...styles.chatBubble,
+            ...(m.role === "user" ? styles.chatBubbleUser : styles.chatBubbleAi)
+          }}>
+            {m.text}
+          </div>
+        ))}
+        {loading && (
+          <div style={{ ...styles.chatBubble, ...styles.chatBubbleAi, color:"#aaa", fontStyle:"italic" }}>
+            Thinking…
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:8 }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKey}
+          placeholder="e.g. add more protein, remove the milk…"
+          style={{ ...styles.inputSm, flex:1 }}
+          disabled={loading}
+        />
+        <button onClick={send} disabled={loading || !input.trim()} style={styles.primaryBtn}>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Meal Name Input with suggestions ─────────────────────────────────────────
+const MEAL_SUGGESTIONS_BY_SLOT = {
+  "Breakfast": ["Omelette","Scrambled Eggs","Avocado Toast","Pancakes","French Toast","Greek Yogurt & Granola","Smoothie Bowl","Oatmeal","Bagel with Cream Cheese","Overnight Oats","Eggs Benedict","Breakfast Burrito","Acai Bowl","Waffles","Shakshuka"],
+  "Lunch": ["Caesar Salad","Grilled Chicken Salad","BLT Sandwich","Ham & Cheese Sandwich","Tuna Wrap","Veggie Wrap","Tomato Soup","Chicken Noodle Soup","Club Sandwich","Caprese Salad","Grain Bowl","Poke Bowl","Quesadilla","Lentil Soup","Niçoise Salad"],
+  "Dinner": ["Grilled Salmon","Pasta Bolognese","Chicken Stir Fry","Beef Tacos","Spaghetti Carbonara","Roast Chicken","Beef Burger","Shrimp Fried Rice","Lamb Chops","Chicken Curry","Beef Stew","Mushroom Risotto","Fish & Chips","Thai Green Curry","Steak & Vegetables"],
+  "Snack": ["Hummus & Veggies","Apple & Peanut Butter","Mixed Nuts","Cheese & Crackers","Trail Mix","Rice Cakes","Cottage Cheese","Edamame","Protein Bar","Guacamole & Chips","Hard Boiled Eggs","Smoothie","Greek Yogurt","Popcorn","Dates & Almond Butter"],
+  "Dessert": ["Chocolate Lava Cake","Ice Cream","Fruit Parfait","Cheesecake","Tiramisu","Brownie","Banana Bread","Chia Pudding","Crème Brûlée","Panna Cotta","Apple Crumble","Chocolate Mousse","Macarons","Gelato","Sticky Toffee Pudding"],
+  "Beverage": ["Green Smoothie","Protein Shake","Matcha Latte","Cold Brew Coffee","Fresh Orange Juice","Berry Smoothie","Turmeric Latte","Iced Tea","Kombucha","Banana Smoothie","Beet Juice","Oat Milk Latte","Mango Lassi","Watermelon Juice","Lemonade"],
+};
+const MEAL_SUGGESTIONS = Object.values(MEAL_SUGGESTIONS_BY_SLOT).flat();
+
+function MealNameInput({ value, onChange, slot, onEnter }) {
+  const [focused, setFocused] = useState(false);
+  const wrapRef = useRef(null);
+
+  const slotSuggestions = MEAL_SUGGESTIONS_BY_SLOT[slot] || MEAL_SUGGESTIONS;
+  const filtered = value.trim().length === 0
+    ? slotSuggestions.slice(0, 8)
+    : MEAL_SUGGESTIONS.filter(s => s.toLowerCase().includes(value.toLowerCase()) && s.toLowerCase() !== value.toLowerCase()).slice(0, 8);
+
+  const showDropdown = focused && filtered.length > 0;
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setFocused(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={wrapRef} style={{ flex:1, position:"relative" }} onClick={e => e.stopPropagation()}>
+      <input
+        placeholder="What are you making? Name or describe it and we'll fetch the ingredients!"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onKeyDown={e => {
+          if (e.key === "Enter" && value.trim()) {
+            e.preventDefault();
+            setFocused(false);
+            onEnter && onEnter();
+          }
+        }}
+        style={{ ...styles.inputSm, width:"100%", fontWeight:700, fontSize:14, border:"none", background:"transparent", padding:"0 4px", boxShadow:"none", boxSizing:"border-box" }}
+      />
+      {showDropdown && (
+        <div style={styles.suggestionDropdown}>
+          {value.trim().length === 0 && (
+            <div style={{ ...styles.suggestionHeader, color:"#7c3aed" }}>Popular {slot ? slot.toLowerCase() : "meals"}</div>
+          )}
+          {filtered.map(s => (
+            <div key={s} style={styles.suggestionItem}
+              onMouseEnter={e => e.currentTarget.style.background="#f5f3ff"}
+              onMouseLeave={e => e.currentTarget.style.background="transparent"}
+              onMouseDown={e => { e.preventDefault(); onChange(s); setFocused(false); }}>
+              {value.trim().length > 0 ? (
+                <>
+                  <span style={{ fontWeight:600 }}>{s.slice(0, s.toLowerCase().indexOf(value.toLowerCase()))}</span>
+                  <span style={{ background:"#ede9fe", color:"#5b21b6", borderRadius:3 }}>{s.slice(s.toLowerCase().indexOf(value.toLowerCase()), s.toLowerCase().indexOf(value.toLowerCase()) + value.length)}</span>
+                  <span>{s.slice(s.toLowerCase().indexOf(value.toLowerCase()) + value.length)}</span>
+                </>
+              ) : s}
+            </div>
+          ))}
+          <div
+            style={{ padding:"9px 12px", fontSize:13, cursor:"pointer", color:"#7c3aed", fontWeight:700, borderTop:`1px solid ${C.border}`, background:"#f5f3ff", display:"flex", alignItems:"center", gap:6 }}
+            onMouseEnter={e => e.currentTarget.style.background="#ede9fe"}
+            onMouseLeave={e => e.currentTarget.style.background="#f5f3ff"}
+            onMouseDown={e => {
+              e.preventDefault();
+              const list = slotSuggestions;
+              const random = list[Math.floor(Math.random() * list.length)];
+              onChange(random);
+              setFocused(false);
+            }}>
+            🎲 Surprise me!
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Meal Card ─────────────────────────────────────────────────────────────────
+function MealCard({ meal, currentDay, allDays, onUpdate, onDelete, onPropagate, onAddToPantry, updateMealDirect }) {
+  const [expanded, setExpanded] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiLoadingRef = useRef(false);
+  const [aiError, setAiError] = useState("");
+  const [showPropagate, setShowPropagate] = useState(false);
+  const [completed, setCompleted] = useState(meal.completed || false);
+  useEffect(() => { setCompleted(meal.completed || false); }, [meal.completed]);
+  const mealRef = useRef(meal);
+  const onUpdateRef = useRef(onUpdate);
+  useEffect(() => { mealRef.current = meal; }, [meal]);
+  useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
+  const cardRef = useRef(null);
+
+  function scrollCardIntoView() {
+    const start = Date.now();
+    let lastHeight = 0;
+    function check() {
+      if (!cardRef.current) return;
+      const rect = cardRef.current.getBoundingClientRect();
+      if (rect.height !== lastHeight && Date.now() - start < 800) {
+        lastHeight = rect.height;
+        requestAnimationFrame(check);
+      } else {
+        const targetScrollY = window.scrollY + rect.bottom - window.innerHeight + 24;
+        if (targetScrollY > window.scrollY) {
+          window.scrollTo({ top: targetScrollY, behavior:"smooth" });
+        }
+      }
+    }
+    requestAnimationFrame(check);
+  }
+
+  function toggleExpanded() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) scrollCardIntoView();
+  }
+
+  function markComplete() {
+    setCompleted(true);
+    setExpanded(false);
+    onUpdate({ ...meal, completed: true });
+  }
+  function unmarkComplete() {
+    setCompleted(false);
+    onUpdate({ ...meal, completed: false });
+  }
+
+  function addIngredient() {
+    onUpdate({ ...meal, ingredients: [...meal.ingredients, { id: generateId(), name:"", qty:"", unit:"", category:"Other", inPantry:false }] });
+  }
+
+  function updateIng(id, updated) {
+    if (updated.name !== meal.ingredients.find(i => i.id===id)?.name) {
+      updated.category = guessCategory(updated.name);
+    }
+    onUpdate({ ...meal, ingredients: meal.ingredients.map(i => i.id===id ? updated : i) });
+  }
+
+  function removeIng(id) {
+    onUpdate({ ...meal, ingredients: meal.ingredients.filter(i => i.id!==id) });
+  }
+
+  async function suggestIngredients() {
+    if (aiLoadingRef.current) return;
+    const mealId = meal.id;
+    const mealName = meal.name;
+    const mealServings = meal.servings;
+    if (!mealName.trim()) { setAiError("Enter a meal name first."); setExpanded(true); return; }
+    setExpanded(true);
+    scrollCardIntoView();
+    setAiError("");
+    aiLoadingRef.current = true;
+    setAiLoading(true);
+    const servings = parseFloat(mealServings) || 1;
+    try {
+      const raw = await callClaude(
+        `List ingredients for "${mealName}" scaled for ${servings} total serving${servings !== 1 ? "s" : ""}. Return ONLY a JSON array with quantities already scaled to the TOTAL needed. Example: [{"name":"egg","qty":"4","unit":"large"},{"name":"cheddar cheese","qty":"60","unit":"g"}]. Use practical units (g, ml, tbsp, tsp, cup, piece, slice, clove). No markdown, no explanation.`,
+        "You are a recipe assistant. Always return pre-scaled total ingredient quantities as a valid JSON array."
+      );
+      const items = JSON.parse(raw.replace(/```json|```/g,"").trim());
+      const newIngs = items.map(i => ({
+        id: generateId(), name: i.name||"", qty: String(i.qty||""), unit: i.unit||"",
+        category: guessCategory(i.name||""), emoji: getIngredientEmoji(i.name||""), inPantry: false
+      }));
+      // Directly update weekPlan in App state by meal id - functional updater gets latest state
+      updateMealDirect.current(mealId, upd => ({ ...upd, ingredients: newIngs }));
+    } catch (err) {
+      setAiError("Failed: " + (err?.message || "please try again."));
+    } finally {
+      aiLoadingRef.current = false;
+      setAiLoading(false);
+    }
+  }
+
+  const pantryCount = meal.ingredients.filter(i => i.inPantry).length;
+
+  return (
+    <>
+      {showPropagate && (
+        <PropagateModal
+          meal={meal}
+          currentDay={currentDay}
+          allDays={allDays}
+          onPropagate={days => onPropagate(meal, days)}
+          onClose={() => setShowPropagate(false)}
+        />
+      )}
+
+      <div ref={cardRef} style={styles.mealCard}>
+
+        {/* Row 1: meal name + pill + done badge */}
+        <div
+          style={{ display:"flex", alignItems:"center", gap:8, padding:"12px 14px 6px", cursor:"pointer", opacity: completed ? 0.7 : 1, background: expanded ? "transparent" : "#f5f3ff", borderRadius:"14px 14px 0 0", transition:"background .2s" }}
+          onClick={toggleExpanded}
+          onMouseEnter={e => { if (!expanded) e.currentTarget.style.background="#ede9fe"; }}
+          onMouseLeave={e => { if (!expanded) e.currentTarget.style.background="#f5f3ff"; }}
+        >
+          <MealNameInput value={meal.name} onChange={name => onUpdate({ ...meal, name })} slot={meal.slot} onEnter={suggestIngredients} />
+          {completed && (
+            <button onClick={e => { e.stopPropagation(); unmarkComplete(); }}
+              title="Mark as incomplete"
+              style={{ flexShrink:0, background:"#3b82f6", border:"1.5px solid #2563eb", borderRadius:20, padding:"2px 9px", fontSize:11, fontWeight:700, color:"#fff", cursor:"pointer", display:"flex", alignItems:"center", gap:3 }}>
+              ✓ Done
+            </button>
+          )}
+        </div>
+
+        {/* Row 2: slot · serves · generate · badge · copy to days */}
+        <div style={{ display:"flex", alignItems:"center", gap:7, padding:"4px 14px 12px", overflowX:"auto" }} onClick={e => e.stopPropagation()}>
+          <select
+            value={meal.slot}
+            onChange={e => onUpdate({ ...meal, slot: e.target.value })}
+            style={{ ...styles.selectSm, width:96, flexShrink:0 }}
+          >
+            {["Breakfast","Lunch","Dinner","Dessert","Snack","Beverage"].map(s => <option key={s}>{s}</option>)}
+          </select>
+
+          <div style={{ display:"flex", alignItems:"center", gap:4, background:"#f9fafb", border:"1.5px solid #e5e7eb", borderRadius:8, padding:"0 8px", height:33, flexShrink:0 }}>
+            <span style={{ fontSize:11, color:"#888", fontWeight:600 }}>Servings</span>
+            <input
+              type="number" min="1"
+              value={meal.servings}
+              onChange={e => onUpdate({ ...meal, servings: e.target.value })}
+              style={{ width:30, border:"none", background:"transparent", fontSize:13, fontWeight:700, outline:"none", color:"#1c1c1e", textAlign:"center" }}
+            />
+          </div>
+
+          <button onClick={e => { e.stopPropagation(); suggestIngredients(); }} disabled={aiLoading}
+            style={{ ...styles.primaryBtn, padding:"6px 14px", fontSize:12, flexShrink:0, boxShadow:"0 2px 8px rgba(34,134,58,0.25)" }}>
+            {aiLoading ? "✦ Building…" : "✦ Generate Ingredients"}
+          </button>
+
+          <button onClick={() => setShowPropagate(true)} style={{ ...styles.duplicateBtn, marginLeft:"auto", background:"#f1f5f9", color:"#64748b", border:"1px solid #e2e8f0" }}>
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M2 7a5 5 0 1 0 5-5V1L4 3.5 7 6V4a3 3 0 1 1-3 3H2z" fill="currentColor"/></svg>
+            Duplicate
+          </button>
+
+          {meal.ingredients.length > 0 && (
+            <span style={{ ...styles.badge, flexShrink:0, whiteSpace:"nowrap" }}>{meal.ingredients.length} ingredient{meal.ingredients.length !== 1 ? "s" : ""}</span>
+          )}
+
+        </div>
+
+        {/* Row 3: Add Ingredients / Close */}
+        <div style={{ padding:"0 14px 10px" }} onClick={e => e.stopPropagation()}>
+          <button
+            onClick={toggleExpanded}
+            onMouseEnter={e => e.currentTarget.style.background = expanded ? "#e2e8f0" : "#f0fdf4"}
+            onMouseLeave={e => e.currentTarget.style.background = expanded ? "#f1f5f9" : "#f0fdf4"}
+            style={{ width:"100%", padding:"9px", background: expanded ? "#f1f5f9" : "#f0fdf4", border: expanded ? "2px solid #cbd5e1" : `2px solid ${C.greenMid}`, borderRadius:10, cursor:"pointer", fontSize:13, fontWeight:800, color: expanded ? "#475569" : C.greenDark, transition:"all .15s", textAlign:"center", letterSpacing:".01em" }}>
+            {meal.generating ? (
+              <span style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}>
+                <span style={{ fontSize:14, animation:"spin 1.2s linear infinite", display:"inline-block" }}>✦</span>
+                Generating ingredients…
+              </span>
+            ) : expanded ? "▴ Close" : "▾ Ingredients"}
+          </button>
+        </div>
+
+        {/* Expanded body */}
+        {expanded && (
+          <div style={styles.mealCardBody}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+              <span style={styles.label}>Ingredients</span>
+              <span style={{ fontSize:11, color:"#bbb", fontStyle:"italic" }}>🧺 = skip on shopping list</span>
+            </div>
+
+            {meal.ingredients.length === 0 && (
+              <div style={{ textAlign:"center", padding:"18px 0 10px" }}>
+                {aiLoading ? (
+                  <>
+                    <div style={{ fontSize:28, marginBottom:8, animation:"spin 1.2s linear infinite", display:"inline-block" }}>✦</div>
+                    <p style={{ color:"#7c3aed", fontSize:13, fontWeight:600, margin:0 }}>Generating ingredients…</p>
+                    <p style={{ color:"#bbb", fontSize:11, margin:"4px 0 0" }}>This usually takes a few seconds</p>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ color:"#bbb", fontSize:13, margin:"0 0 4px" }}>No ingredients yet.</p>
+                    <p style={{ color:"#ccc", fontSize:11, margin:0 }}>Click ✦ Generate Ingredients or add them manually</p>
+                  </>
+                )}
+              </div>
+            )}
+            {meal.ingredients.map(ing => (
+              <IngredientRow key={ing.id} ing={ing}
+                onChange={u => updateIng(ing.id, u)}
+                onRemove={() => removeIng(ing.id)}
+                onAddToPantry={onAddToPantry}
+              />
+            ))}
+
+            <button onClick={addIngredient} style={{ ...styles.smallBtn, marginTop:8, marginBottom:6 }}>+ Add ingredient</button>
+            <button onClick={markComplete}
+              style={{ width:"100%", padding:"7px", background:"#3b82f6", border:"1.5px solid #3b82f6", borderRadius:10, cursor:"pointer", fontSize:12, fontWeight:700, color:"#fff", marginBottom:4, textAlign:"center", boxShadow:"0 4px 12px rgba(59,130,246,.3)" }}>
+              ✓ Complete
+            </button>
+
+            <div style={{ marginTop:16, borderTop:`1px solid ${C.borderLight}`, paddingTop:14 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:8 }}>
+                <span style={{ fontSize:15 }}>💬</span>
+                <span style={{ fontSize:13, fontWeight:700, color:C.inkMid }}>Ask about this meal</span>
+                <span style={{ fontSize:11, color:"#bbb", marginLeft:4 }}>e.g. "make this dairy free" or "suggest a substitution for eggs"</span>
+              </div>
+              <MealChat meal={meal} onUpdateIngredients={newIngs => onUpdate({ ...meal, ingredients: newIngs })} />
+            </div>
+
+            <NutritionPanel meal={meal} />
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+const globalStyles = `
+  @media (min-width: 600px) {
+    .ing-row { flex-wrap: nowrap !important; }
+    .ing-row-controls { padding-left: 0 !important; flex-wrap: nowrap !important; }
+    .ing-row-card { background: transparent !important; border: none !important; padding: 0 0 6px 0 !important; border-radius: 0 !important; }
+    .ing-row-name { margin-bottom: 0 !important; }
+  }
+  @media (max-width: 599px) {
+    .ing-row-delete { margin-left: auto; }
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes checkPop {
+    0% { transform: scale(0.5); opacity: 0; }
+    60% { transform: scale(1.25); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  @keyframes fadeStrike {
+    from { opacity: 1; }
+    to { opacity: 0.45; }
+  }
+  .check-circle {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 2px solid #d1d5db;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
+    transition: border-color 0.15s, background 0.15s;
+    background: white;
+  }
+  .check-circle:hover { border-color: #22c55e; background: #f0fdf4; }
+  .check-circle.checked {
+    background: #22c55e; border-color: #22c55e;
+    animation: checkPop 0.3s ease forwards;
+  }
+  .check-circle.checked svg { display: block; }
+  .check-circle svg { display: none; }
+  .list-item-checked { animation: fadeStrike 0.2s ease forwards; }
+`;
+
+
+function OnboardingOverlay({ step, onNext, onSkip }) {
+  const steps = [
+    {
+      emoji: "👋",
+      title: "Welcome to Foodie",
+      body: "Your AI-powered meal planner. Plan your week, build your shopping list, and waste less — all in one place.",
+      cta: "Next",
+    },
+    {
+      emoji: "🍽️",
+      title: "Add a meal in seconds",
+      body: "Type any meal name, pick a day, then hit ✦ Generate Ingredients — Foodie auto-fills everything for you.",
+      cta: "Next",
+      highlight: true,
+      highlightContent: (
+        <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          <span style={{ fontSize:13, fontWeight:700, color:"#7c3aed" }}>Beef Tacos</span>
+          <span style={{ fontSize:12, color:"#bbb" }}>→</span>
+          <span style={{ fontSize:13, fontWeight:700, color:"#22863a" }}>✦ Generate Ingredients</span>
+        </div>
+      ),
+    },
+    {
+      emoji: "✦",
+      title: "Or just tell it what you want",
+      body: "The AI command bar understands plain English. Try: add a protein breakfast Monday through Friday and watch it build your whole week.",
+      cta: "Let's go!",
+      highlight: true,
+    },
+  ];
+  const s = steps[step];
+  const totalSteps = steps.length;
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:24 }}>
+      <div style={{ background:"#fff", borderRadius:20, padding:36, width:"100%", maxWidth:420, boxShadow:"0 16px 48px rgba(0,0,0,0.2)", textAlign:"center" }}>
+        <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:24 }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ width:8, height:8, borderRadius:"50%", background: i === step ? "#22863a" : "#e5e7eb", transition:"background .2s" }} />
+          ))}
+        </div>
+        <div style={{ fontSize:48, marginBottom:16 }}>{s.emoji}</div>
+        <h2 style={{ margin:"0 0 12px", fontSize:22, fontWeight:800, color:"#1c1c1e" }}>{s.title}</h2>
+        <p style={{ margin:"0 0 28px", fontSize:15, color:"#555", lineHeight:1.6 }}>{s.body}</p>
+        {s.highlight && (
+          <div style={{ background:"#f5f3ff", border:"2px solid #c4b5fd", borderRadius:12, padding:"12px 16px", marginBottom:24, display:"flex", alignItems:"center", justifyContent:"center", gap:10 }}>
+            {s.highlightContent || (
+              <>
+                <span style={{ fontSize:16, color:"#7c3aed" }}>✦</span>
+                <span style={{ fontSize:13, color:"#7c3aed", fontWeight:600 }}>add a chicken dinner for Monday</span>
+              </>
+            )}
+          </div>
+        )}
+        <button onClick={onNext} style={{ width:"100%", padding:"14px", background:"#22863a", border:"none", borderRadius:12, fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", boxShadow:"0 4px 14px rgba(34,134,58,0.3)", marginBottom:10 }}>
+          {s.cta}
+        </button>
+        <button onClick={onSkip} style={{ background:"none", border:"none", color:"#bbb", fontSize:12, cursor:"pointer", display:"block", width:"100%" }}>
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+const CMD_PLACEHOLDERS = [
+  "give me a different dinner every day this week",
+  "add a high protein breakfast Monday through Friday",
+  "plan a vegetarian week for me",
+  "add a quick 20-minute lunch for today",
+  "give me a Mediterranean meal plan for the week",
+  "add a healthy snack every day this week",
+  "plan 3 easy weeknight dinners",
+  "give me a budget-friendly meal plan",
+];
+
+function useRotatingPlaceholder(items) {
+  const [index] = React.useState(() => Math.floor(Math.random() * items.length));
+  return items[index];
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null, info: null }; }
+  static getDerivedStateFromError(e) { return { error: e.message }; }
+  componentDidCatch(e, info) { this.setState({ error: e.message, info: info.componentStack }); }
+  render() {
+    if (this.state.error) return (
+      <div style={{ padding:40, fontFamily:"monospace", background:"#fff1f2", minHeight:"100vh" }}>
+        <h2 style={{ color:"#e11d48" }}>⚠️ App Error</h2>
+        <p style={{ color:"#555", marginBottom:16 }}>Copy this and send it as a bug report:</p>
+        <pre style={{ whiteSpace:"pre-wrap", background:"#fff", border:"1px solid #fecdd3", borderRadius:8, padding:16, fontSize:13, color:"#be123c" }}>{this.state.error}</pre>
+        {this.state.info && <pre style={{ whiteSpace:"pre-wrap", fontSize:11, color:"#aaa", marginTop:8 }}>{this.state.info}</pre>}
+        <button onClick={() => this.setState({ error: null })} style={{ marginTop:16, padding:"8px 16px", background:"#e11d48", color:"#fff", border:"none", borderRadius:8, cursor:"pointer" }}>Try again</button>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+function App() {
+  const [activeTab, setActiveTab] = useState("planner");
+  const [activeDay, setActiveDay] = useState("Monday");
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [globalCmd, setGlobalCmd] = useState("");
+  const [dateRange, setDateRange] = useState({ start: "", end: "" });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Compute active days from date range
+  const activeDays = React.useMemo(() => {
+    if (!dateRange.start || !dateRange.end) return null;
+    const start = new Date(dateRange.start);
+    const end = new Date(dateRange.end);
+    if (isNaN(start) || isNaN(end) || end < start) return null;
+    const days = [];
+    const cur = new Date(start);
+    while (cur <= end && days.length < 30) {
+      // Use ISO date string as key so each date is unique across weeks
+      const iso = cur.toISOString().slice(0, 10); // "2026-03-16"
+      days.push(iso);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }, [dateRange]);
+  const [globalLoading, setGlobalLoading] = useState(false);
+  const [globalResult, setGlobalResult] = useState("");
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    function handleClick() { setPendingDelete(null); }
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, [pendingDelete]);
+  const [weekPlan, setWeekPlan] = useState(() =>
+    loadState("weekPlan", Object.fromEntries(DAYS.map(d => [d, []])))
+  );
+  const [pantry, setPantry] = useState(() => loadState("pantry", []));
+  const [newPantryItem, setNewPantryItem] = useState({ name:"", qty:"", unit:"" });
+  const [shoppingList, setShoppingList] = useState({});
+  const [listLoading, setListLoading] = useState(false);
+  const [manualItems, setManualItems] = useState(() => loadState("manualItems", []));
+  const [manualInput, setManualInput] = useState("");
+  useEffect(() => { saveState("manualItems", manualItems); }, [manualItems]);
+
+  function addManualItem() {
+    const name = manualInput.trim();
+    if (!name) return;
+    setManualItems(prev => [...prev, { id: generateId(), name }]);
+    setManualInput("");
+  }
+  function removeManualItem(id) {
+    setManualItems(prev => prev.filter(i => i.id !== id));
+  }
+
+  const cmdPlaceholder = useRotatingPlaceholder(CMD_PLACEHOLDERS);
+  const [showOnboarding, setShowOnboarding] = useState(() => !loadState("onboardingDone", false));
+  const [showDataBanner, setShowDataBanner] = useState(() => !loadState("dataBannerDismissed", false));
+  const [onboardingStep, setOnboardingStep] = useState(0);
+  const [showBugReport, setShowBugReport] = useState(false);
+  const [bugText, setBugText] = useState("");
+  const [checkedItems, setCheckedItems] = useState(() => loadState("checkedItems", {}));
+  useEffect(() => { saveState("checkedItems", checkedItems); }, [checkedItems]);
+
+  function toggleShoppingItem(cat, name) {
+    const key = `${cat}::${name}`;
+    setCheckedItems(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+  function clearChecked() { setCheckedItems({}); setManualItems([]); setShoppingList({}); setActiveTab("planner"); }
+
+  useEffect(() => { saveState("weekPlan", weekPlan); }, [weekPlan]);
+  useEffect(() => { saveState("pantry", pantry); }, [pantry]);
+
+  function addMeal(day) {
+    setWeekPlan(p => ({
+      ...p,
+      [day]: [{ id:generateId(), name:"", slot:"Breakfast", servings:"1", ingredients:[], completed:false }, ...(p[day] || [])]
+    }));
+  }
+  function updateMeal(day, id, updated) {
+    setWeekPlan(p => ({ ...p, [day]: (p[day] || []).map(m => m.id===id ? updated : m) }));
+  }
+  const updateMealByIdRef = useRef(null);
+  function updateMealById(id, updatedOrFn) {
+    setWeekPlan(p => {
+      const next = { ...p };
+      for (const day of Object.keys(next)) {
+        const idx = (next[day] || []).findIndex(m => m.id === id);
+        if (idx !== -1) {
+          const current = next[day][idx];
+          const updated = typeof updatedOrFn === 'function' ? updatedOrFn(current) : updatedOrFn;
+          next[day] = [...next[day].slice(0, idx), updated, ...next[day].slice(idx + 1)];
+          return next;
+        }
+      }
+      return next;
+    });
+  }
+  // Set ref synchronously so it's always current before any render
+  updateMealByIdRef.current = updateMealById;
+
+  function deleteMeal(day, id) {
+    setWeekPlan(p => ({ ...p, [day]: (p[day] || []).filter(m => m.id!==id) }));
+  }
+
+  async function runGlobalCommand() {
+    if (!globalCmd.trim() || globalLoading) return;
+    setGlobalLoading(true);
+    setGlobalResult("");
+    try {
+      // Send a lean version of weekPlan
+      const leanPlan = {};
+      for (const [day, meals] of Object.entries(weekPlan)) {
+        leanPlan[day] = meals.map(m => ({ id: m.id, name: m.name, slot: m.slot, servings: m.servings }));
+      }
+      const raw = await callClaude(
+        `You are a meal planning assistant. The user's current week plan (meal names only): ${JSON.stringify(leanPlan)}
+
+Available days: ${(activeDays || DAYS).join(", ")}
+
+User command: "${globalCmd}"
+
+Return ONLY a JSON object with these optional fields:
+- "addMeals": [ { "day": "Monday", "name": "Scrambled Eggs", "slot": "Breakfast", "servings": "1" } ]
+- "deleteMealNames": [ { "day": "Monday", "name": "Pancakes" } ]
+- "markInPantry": ["vanilla extract"]
+- "message": "Short confirmation"
+
+Slots: Breakfast, Lunch, Dinner, Snack, Dessert, Beverage.
+For commands spanning multiple days and slots, include ALL meals in addMeals — do not truncate.
+No markdown, no explanation, just valid JSON.`,
+        "You are a helpful meal planning assistant. Return only valid JSON.",
+        2000
+      );
+      const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+      // Add new meals and auto-generate ingredients
+      if (parsed.addMeals && Array.isArray(parsed.addMeals)) {
+        const newMeals = parsed.addMeals.map(m => ({
+          id: generateId(),
+          name: m.name || "",
+          slot: m.slot || "Dinner",
+          servings: m.servings || "1",
+          ingredients: [],
+          completed: false,
+          generating: true,
+          day: m.day,
+        }));
+
+        setWeekPlan(prev => {
+          const updated = { ...prev };
+          for (const m of newMeals) {
+            if (!updated[m.day]) updated[m.day] = [];
+            updated[m.day] = [...updated[m.day], m];
+          }
+          return updated;
+        });
+
+        // Auto-generate ingredients for each new meal
+        setGlobalResult(`Added ${newMeals.length} meal${newMeals.length > 1 ? "s" : ""}. Generating ingredients…`);
+        await new Promise(r => setTimeout(r, 50)); // let React render the generating state first
+        for (const m of newMeals) {
+          try {
+            const ingRaw = await callClaude(
+              `List ingredients for "${m.name}" scaled for ${parseFloat(m.servings) || 1} serving(s). Return ONLY a JSON array. Example: [{"name":"egg","qty":"2","unit":"large"}]. Use practical units (g, ml, tbsp, tsp, cup, piece, clove). No markdown.`,
+              "You are a recipe assistant. Return only a valid JSON array of ingredients."
+            );
+            const items = JSON.parse(ingRaw.replace(/```json|```/g, "").trim());
+            const newIngs = items.map(i => ({
+              id: generateId(),
+              name: i.name || "",
+              qty: String(i.qty || ""),
+              unit: i.unit || "",
+              category: guessCategory(i.name || ""),
+              emoji: getIngredientEmoji(i.name || ""),
+              inPantry: false,
+            }));
+            setWeekPlan(prev => {
+              const updated = { ...prev };
+              updated[m.day] = (updated[m.day] || []).map(meal =>
+                meal.id === m.id ? { ...meal, ingredients: newIngs, generating: false } : meal
+              );
+              return updated;
+            });
+          } catch (e) {
+            setWeekPlan(prev => {
+              const updated = { ...prev };
+              updated[m.day] = (updated[m.day] || []).map(meal =>
+                meal.id === m.id ? { ...meal, generating: false } : meal
+              );
+              return updated;
+            });
+          }
+        }
+      }
+
+      // Delete meals by name
+      if (parsed.deleteMealNames && Array.isArray(parsed.deleteMealNames)) {
+        setWeekPlan(prev => {
+          const updated = { ...prev };
+          for (const { day, name } of parsed.deleteMealNames) {
+            if (updated[day]) {
+              updated[day] = updated[day].filter(m => m.name.toLowerCase() !== name.toLowerCase());
+            }
+          }
+          return updated;
+        });
+      }
+
+      // Mark ingredients as in pantry across all meals
+      if (parsed.markInPantry && Array.isArray(parsed.markInPantry)) {
+        const names = parsed.markInPantry.map(n => n.toLowerCase().trim());
+        setWeekPlan(prev => {
+          const updated = { ...prev };
+          for (const day of Object.keys(updated)) {
+            updated[day] = updated[day].map(meal => ({
+              ...meal,
+              ingredients: meal.ingredients.map(ing =>
+                names.some(n => ing.name.toLowerCase().includes(n) || n.includes(ing.name.toLowerCase()))
+                  ? { ...ing, inPantry: true } : ing
+              )
+            }));
+          }
+          return updated;
+        });
+      }
+
+      setGlobalResult(parsed.message || "Done!");
+      setGlobalCmd("");
+    } catch (err) {
+      setGlobalResult("Something went wrong — try rephrasing your command.");
+    } finally {
+      setGlobalLoading(false);
+    }
+  }
+
+  // Copy meal to selected days
+  function propagateMeal(meal, targetDays) {
+    setWeekPlan(prev => {
+      const next = { ...prev };
+      targetDays.forEach(day => {
+        const copy = {
+          ...meal,
+          id: generateId(),
+          ingredients: meal.ingredients.map(i => ({ ...i, id: generateId() }))
+        };
+        next[day] = [...(next[day] || []), copy];
+      });
+      return next;
+    });
+  }
+
+  // Add ingredient directly to pantry from meal card checkbox
+  function addIngToPantry(ing) {
+    setPantry(prev => {
+      if (prev.find(p => p.name.toLowerCase() === ing.name.toLowerCase())) return prev;
+      return [...prev, { id: generateId(), name: ing.name, qty: ing.qty || "1", unit: ing.unit || "" }];
+    });
+  }
+
+  function generateList() {
+    setListLoading(true);
+    setShoppingList({});
+
+    const totals = {};
+    const days = activeDays || DAYS;
+    days.forEach(day => {
+      (weekPlan[day] || []).forEach(meal => {
+        const scale = parseFloat(meal.servings) || 1;
+        meal.ingredients.forEach(ing => {
+          if (!ing.name.trim()) return;
+          const UNIT_MAP = { teaspoon:"tsp", teaspoons:"tsp", tablespoon:"tbsp", tablespoons:"tbsp", cup:"cup", cups:"cup", ounce:"oz", ounces:"oz", pound:"lb", pounds:"lb", gram:"g", grams:"g", kilogram:"kg", kilograms:"kg", milliliter:"ml", milliliters:"ml", liter:"l", liters:"l", piece:"", pieces:"", slice:"", slices:"", clove:"", cloves:"", large:"", medium:"", small:"" };
+          const normalizeUnit = u => UNIT_MAP[u.trim().toLowerCase()] ?? u.trim().toLowerCase();
+          const normName = ing.name.trim().toLowerCase();
+          const normUnit = normalizeUnit(ing.unit);
+          const key = normName; // merge by name only
+          if (!totals[key]) totals[key] = { name: ing.name.trim(), unit: normUnit, category: ing.category || "Other", qty: 0, inPantry: ing.inPantry || false, unitCounts: {} };
+          totals[key].unitCounts[normUnit] = (totals[key].unitCounts[normUnit] || 0) + 1;
+          totals[key].qty += (parseFraction(ing.qty) || 1) * scale;
+          if (ing.inPantry) totals[key].inPantry = true;
+        });
+      });
+    });
+
+    // Pick most common unit per ingredient
+    Object.values(totals).forEach(item => {
+      if (item.unitCounts) {
+        item.unit = Object.entries(item.unitCounts).sort((a,b) => b[1]-a[1])[0]?.[0] ?? item.unit;
+        delete item.unitCounts;
+      }
+    });
+
+    const listItems = Object.values(totals).filter(i => i.qty > 0);
+
+    const grouped = {};
+    listItems.forEach(item => {
+      const cat = item.category || "Other";
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(item);
+    });
+
+    const sortedGrouped = {};
+    Object.keys(grouped).sort((a, b) => a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b)).forEach(cat => {
+      sortedGrouped[cat] = grouped[cat].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    setShoppingList(sortedGrouped);
+    setListLoading(false);
+    setActiveTab("list");
+  }
+
+
+
+  function addPantryItem() {
+    if (!newPantryItem.name.trim()) return;
+    setPantry(p => [...p, { id: generateId(), ...newPantryItem }]);
+    setNewPantryItem({ name:"", qty:"", unit:"" });
+  }
+
+  const totalMeals = Object.values(weekPlan).reduce((s,meals) => s + (meals?.length||0), 0);
+
+  return (
+    <ErrorBoundary><div style={styles.app}>
+      <style>{globalStyles}</style>
+
+      {showOnboarding && (
+        <OnboardingOverlay
+          step={onboardingStep}
+          onNext={() => {
+            if (onboardingStep < 2) {
+              setOnboardingStep(s => s + 1);
+            } else {
+              saveState("onboardingDone", true);
+              setShowOnboarding(false);
+            }
+          }}
+          onSkip={() => { saveState("onboardingDone", true); setShowOnboarding(false); }}
+        />
+      )}
+
+      <header style={styles.header}>
+        <div style={styles.headerInner}>
+          <div style={styles.logoWrap}>
+            <div style={styles.logoIcon}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <line x1="7" y1="3" x2="7" y2="21" stroke="#14532d" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="5" y1="3" x2="5" y2="8" stroke="#14532d" strokeWidth="2" strokeLinecap="round"/>
+                  <line x1="9" y1="3" x2="9" y2="8" stroke="#14532d" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M5 8 Q7 11 9 8" stroke="#14532d" strokeWidth="2" fill="none" strokeLinecap="round"/>
+                  <line x1="17" y1="3" x2="17" y2="21" stroke="#14532d" strokeWidth="2" strokeLinecap="round"/>
+                  <path d="M17 3 Q21 6 17 12" fill="#14532d" stroke="#14532d" strokeWidth="1" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            <div>
+              <h1 style={styles.logo}>Foodie</h1>
+              <p style={styles.tagline}>Plan meals · Shop smart · Waste nothing</p>
+            </div>
+          </div>
+          <div style={styles.stats}>
+            <span style={styles.stat}>🍽 {totalMeals} meals</span>
+            <span style={styles.stat}>🧺 {pantry.length} pantry items</span>
+            <button
+              onClick={() => setShowBugReport(true)}
+              style={{ background:"#fff1f2", border:"1px solid #fecdd3", borderRadius:20, padding:"4px 12px", fontSize:11, color:"#e11d48", cursor:"pointer", fontWeight:500 }}>
+              🐛 Report a bug
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {showBugReport && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.4)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}
+          onClick={() => setShowBugReport(false)}>
+          <div style={{ background:"#fff", borderRadius:16, padding:24, width:"100%", maxWidth:460, boxShadow:"0 8px 32px rgba(0,0,0,0.15)" }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin:"0 0 6px", fontSize:17 }}>🐛 Report a Bug</h3>
+            <p style={{ margin:"0 0 14px", fontSize:13, color:"#888" }}>Describe what went wrong and we'll look into it.</p>
+            <textarea
+              value={bugText}
+              onChange={e => setBugText(e.target.value)}
+              placeholder="e.g. When I click Generate Ingredients nothing happens…"
+              style={{ width:"100%", height:120, padding:"10px 12px", border:"1.5px solid #e5e7eb", borderRadius:10, fontSize:13, fontFamily:"inherit", resize:"vertical", outline:"none", boxSizing:"border-box" }}
+            />
+            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+              <button
+                onClick={() => {
+                  if (!bugText.trim()) return;
+                  const subject = encodeURIComponent("Foodie App Bug Report");
+                  const body = encodeURIComponent(`Bug description:\n${bugText}\n\nBrowser: ${navigator.userAgent}`);
+                  window.open(`mailto:dshahram25@gmail.com?subject=${subject}&body=${body}`);
+                  setBugText("");
+                  setShowBugReport(false);
+                }}
+                style={{ ...styles.primaryBtn, flex:1 }}>
+                Send Report
+              </button>
+              <button onClick={() => { setShowBugReport(false); setBugText(""); }} style={{ ...styles.outlineBtn }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div style={{ background:"#fafafa", borderBottom:"1px solid #f0f0f0", padding:"10px 24px" }}>
+        <div style={{ maxWidth:1000, margin:"0 auto", display:"flex", gap:8, alignItems:"center" }}>
+          <span style={{ fontSize:16 }}>✦</span>
+          <input
+            value={globalCmd}
+            onChange={e => setGlobalCmd(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runGlobalCommand()}
+            placeholder={`Ask Foodie AI… e.g. "${cmdPlaceholder}"`}
+            style={{ flex:1, padding:"8px 14px", border:"1.5px solid #ede9fe", borderRadius:20, fontSize:13, outline:"none", background:"#fff", color:"#1a1a1a", fontFamily:"inherit" }}
+          />
+          <button
+            onClick={runGlobalCommand}
+            disabled={globalLoading || !globalCmd.trim()}
+            style={{ padding:"8px 16px", background:"#7c3aed", border:"none", borderRadius:20, color:"#fff", fontSize:13, fontWeight:600, cursor:"pointer", opacity: (!globalCmd.trim() || globalLoading) ? 0.5 : 1, whiteSpace:"nowrap" }}>
+            {globalLoading ? "✦ Working…" : "Run"}
+          </button>
+        </div>
+        {globalResult && (
+          <div style={{ maxWidth:1000, margin:"6px auto 0", fontSize:12, color:"#7c3aed", paddingLeft:32 }}>
+            ✓ {globalResult}
+          </div>
+        )}
+      </div>
+
+      <nav style={styles.nav}>
+        {[["planner","📅 Planner"],["list","🛒 Shopping List"]].map(([id,label]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            style={{ ...styles.tab, ...(activeTab===id ? styles.tabActive : {}) }}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {showDataBanner && (
+        <div style={{ background:"#fefce8", borderBottom:"1px solid #fde68a", padding:"8px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", fontSize:12, color:"#92400e" }}>
+          <span>💾 Your meals are saved on this device.</span>
+          <button onClick={() => { saveState("dataBannerDismissed", true); setShowDataBanner(false); }}
+            style={{ background:"none", border:"none", cursor:"pointer", color:"#92400e", fontSize:14, padding:"0 0 0 12px", lineHeight:1 }}>✕</button>
+        </div>
+      )}
+
+      <main style={styles.main}>
+
+        {/* ── PLANNER ── */}
+        {activeTab === "planner" && (
+          <div>
+            <div style={{ marginBottom:20 }}>
+              {/* Week navigation */}
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+                <button onClick={() => setWeekOffset(w => w - 1)}
+                  style={{ ...styles.smallBtn, padding:"4px 10px" }}>‹ Prev</button>
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ fontSize:13, fontWeight:600, color:C.inkMid }}>
+                    {activeDays ? `${new Date(dateRange.start).toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${new Date(dateRange.end).toLocaleDateString("en-US",{month:"short",day:"numeric"})} (${activeDays.length}d)` : weekOffset === 0 ? "This Week" : weekOffset === 1 ? "Next Week" : weekOffset === -1 ? "Last Week" : (() => { const d = getWeekDates(weekOffset); return `${d[0].toLocaleDateString("en-US",{month:"short",day:"numeric"})} – ${d[6].toLocaleDateString("en-US",{month:"short",day:"numeric"})}`; })()}
+                  </span>
+                  <button onClick={() => { if (activeDays) { setDateRange({ start:"", end:"" }); setShowDatePicker(false); } else setShowDatePicker(p => !p); }}
+                    style={{ ...styles.smallBtn, padding:"2px 8px", fontSize:11, background: activeDays ? "#ede9fe" : undefined, color: activeDays ? "#7c3aed" : undefined, borderColor: activeDays ? "#c4b5fd" : undefined }}>
+                    {activeDays ? "✕ Reset" : "📅 Custom"}
+                  </button>
+                  {activeDays && <span style={{ fontSize:11, color:"#7c3aed", fontWeight:600 }}></span>}
+                </div>
+                <button onClick={() => setWeekOffset(w => w + 1)}
+                  style={{ ...styles.smallBtn, padding:"4px 10px" }}>Next ›</button>
+              </div>
+              {showDatePicker && !activeDays && (
+                <div style={{ background:"#f5f3ff", border:"1px solid #ede9fe", borderRadius:12, padding:"12px 16px", marginBottom:12, display:"flex", gap:12, alignItems:"flex-end", flexWrap:"wrap" }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:"#7c3aed", display:"block", marginBottom:4 }}>Start Date</label>
+                    <input type="date" value={dateRange.start}
+                      onChange={e => setDateRange(p => ({ ...p, start: e.target.value }))}
+                      style={{ padding:"6px 10px", border:"1.5px solid #c4b5fd", borderRadius:8, fontSize:13, outline:"none", fontFamily:"inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:"#7c3aed", display:"block", marginBottom:4 }}>End Date</label>
+                    <input type="date" value={dateRange.end}
+                      onChange={e => setDateRange(p => ({ ...p, end: e.target.value }))}
+                      style={{ padding:"6px 10px", border:"1.5px solid #c4b5fd", borderRadius:8, fontSize:13, outline:"none", fontFamily:"inherit" }} />
+                  </div>
+                  <button
+                    onClick={() => { if (dateRange.start && dateRange.end) setShowDatePicker(false); }}
+                    disabled={!dateRange.start || !dateRange.end}
+                    style={{ ...styles.primaryBtn, padding:"7px 16px", opacity: (!dateRange.start || !dateRange.end) ? 0.5 : 1 }}>
+                    Apply
+                  </button>
+                  <button onClick={() => { setShowDatePicker(false); setDateRange({ start:"", end:"" }); }}
+                    style={{ ...styles.smallBtn }}>Cancel</button>
+                </div>
+              )}
+
+              <div style={styles.dayBar}>
+                {activeDays ? (
+                  // Custom date range mode — show each date as its own tab
+                  activeDays.map((dayKey, i) => {
+                    const date = new Date(dayKey + 'T00:00:00'); // parse ISO, avoid timezone shift
+                    const isToday = date.toDateString() === new Date().toDateString();
+                    return (
+                      <button key={dayKey} onClick={() => setActiveDay(dayKey)}
+                        style={{ ...styles.dayBtn, ...(activeDay===dayKey ? styles.dayBtnActive : {}), ...(isToday && activeDay!==dayKey ? { borderColor:"#22863a", borderWidth:2 } : {}) }}>
+                        <span style={{ fontSize:11, opacity:.7 }}>{date.toLocaleDateString("en-US",{weekday:"short"})}</span>
+                        <span style={styles.dayCount}>{weekPlan[dayKey]?.length||0}</span>
+                        <span style={{ fontSize:10, opacity:.65 }}>{date.getMonth()+1}/{date.getDate()}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  DAYS.map((d, i) => {
+                    const date = getWeekDates(weekOffset)[i];
+                    const isToday = date.toDateString() === new Date().toDateString();
+                    return (
+                      <button key={d} onClick={() => setActiveDay(d)}
+                        style={{ ...styles.dayBtn, ...(activeDay===d ? styles.dayBtnActive : {}), ...(isToday && activeDay!==d ? { borderColor:"#22863a", borderWidth:2 } : {}) }}>
+                        <span style={{ fontSize:11, opacity:.7 }}>{d.slice(0,3)}</span>
+                        <span style={styles.dayCount}>{weekPlan[d]?.length||0}</span>
+                        <span style={{ fontSize:10, opacity:.65 }}>{date.getMonth()+1}/{date.getDate()}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div style={styles.section}>
+              <div style={{ display:"flex", alignItems:"center", marginBottom:20, position:"relative" }}>
+                <button onClick={() => addMeal(activeDay)} style={{ ...styles.primaryBtn, background:"#3b82f6", boxShadow:"0 4px 12px rgba(59,130,246,.3)" }}>+ Add Meal</button>
+                <div style={{ position:"absolute", left:"50%", transform:"translateX(-50%)", textAlign:"center" }}>
+                  <h2 style={{ ...styles.sectionTitle, margin:0 }}>
+                    {activeDays
+                      ? new Date(activeDay + 'T00:00:00').toLocaleDateString("en-US", { weekday:"long" })
+                      : activeDay}
+                  </h2>
+                  <p style={{ margin:0, fontSize:13, color:"#888" }}>
+                    {activeDays
+                      ? new Date(activeDay + 'T00:00:00').toLocaleDateString("en-US", { month:"long", day:"numeric" })
+                      : getWeekDates(weekOffset)[DAYS.indexOf(activeDay)]?.toLocaleDateString("en-US", { month:"long", day:"numeric" })
+                    } · {weekPlan[activeDay]?.length||0} meal{weekPlan[activeDay]?.length!==1?"s":""} planned
+                  </p>
+                </div>
+              </div>
+
+              {(!weekPlan[activeDay] || weekPlan[activeDay].length === 0) && (
+                <div style={styles.emptyState}>
+                  <div style={{ fontSize:44, marginBottom:12 }}>🍽️</div>
+                  <p style={{ fontWeight:700, fontSize:16, margin:"0 0 6px", color:"#222" }}>Nothing planned for {activeDays ? new Date(activeDay + 'T00:00:00').toLocaleDateString("en-US", { weekday:"long" }) : activeDay}</p>
+                  <p style={{ fontSize:13, color:"#888", margin:"0 0 16px", lineHeight:1.5, maxWidth:280 }}>
+                    Not sure what to make? Just hit <strong style={{ color:"#222" }}>+ Add Meal</strong>, start typing a craving, and Foodie will suggest ideas and fetch all the ingredients for you.
+                  </p>
+                  <div style={{ display:"flex", gap:10, flexWrap:"wrap", justifyContent:"center", marginBottom:8 }}>
+                    {["🍝 Pasta night","🌮 Taco Tuesday","🥗 Light & fresh","🍜 Something cozy"].map(s => (
+                      <span key={s} style={{ fontSize:12, background:"#f5f3ff", color:"#7c3aed", border:"1px solid #ede9fe", borderRadius:20, padding:"4px 12px", fontWeight:500 }}>{s}</span>
+                    ))}
+                  </div>
+                  <p style={{ fontSize:11, color:"#ccc", margin:"8px 0 0" }}>✦ AI will handle the ingredients &amp; shopping list</p>
+                </div>
+              )}
+
+              {weekPlan[activeDay]?.map(meal => (
+                <div key={meal.id} style={{ position:"relative", marginBottom:0 }}>
+                  {pendingDelete === meal.id ? (
+                    <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:-8, right:-8, zIndex:20, background:"#fff", border:"1.5px solid #fca5a5", borderRadius:10, padding:"6px 10px", boxShadow:"0 4px 12px rgba(0,0,0,.15)", display:"flex", alignItems:"center", gap:6, whiteSpace:"nowrap" }}>
+                      <span style={{ fontSize:11, fontWeight:600, color:"#e11d48" }}>Delete meal?</span>
+                      <button onClick={() => { deleteMeal(activeDay, meal.id); setPendingDelete(null); }} style={{ fontSize:11, fontWeight:700, color:"#fff", background:"#e11d48", border:"none", borderRadius:6, padding:"2px 8px", cursor:"pointer" }}>Yes</button>
+                      <button onClick={() => setPendingDelete(null)} style={{ fontSize:11, fontWeight:600, color:"#888", background:"#f3f4f6", border:"none", borderRadius:6, padding:"2px 8px", cursor:"pointer" }}>No</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setPendingDelete(meal.id)}
+                      style={{ ...styles.iconBtn, color:"#f87171", position:"absolute", top:-8, right:-8, zIndex:10, background:"#fff", borderRadius:"50%", width:22, height:22, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 1px 4px rgba(0,0,0,.15)", padding:0 }}>
+                      <svg width="10" height="10" viewBox="0 0 15 15" fill="none"><path d="M3 3l9 9M12 3l-9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+                    </button>
+                  )}
+                  <MealCard meal={meal} currentDay={activeDay} allDays={activeDays || DAYS}
+                    updateMealDirect={updateMealByIdRef}
+                    onUpdate={u => updateMeal(activeDay, meal.id, u)}
+                    onDelete={() => deleteMeal(activeDay, meal.id)}
+                    onPropagate={propagateMeal}
+                    onAddToPantry={addIngToPantry}
+                  />
+                </div>
+              ))}
+
+              {weekPlan[activeDay]?.length > 0 && (
+                <button onClick={generateList} disabled={listLoading}
+                  style={{ ...styles.primaryBtn, marginTop:20, width:"100%" }}>
+                  {listLoading ? "⏳ Generating list…" : "🛒 Generate Shopping List"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── SHOPPING LIST ── */}
+        {activeTab === "list" && (
+          <div style={styles.section}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+              <div>
+                <h2 style={{ ...styles.sectionTitle, marginBottom:3 }}>Shopping List</h2>
+                {Object.keys(shoppingList).length > 0 && (() => {
+                  const allKeys = Object.keys(weekPlan).filter(d => weekPlan[d]?.length > 0);
+                  if (allKeys.length === 0) return null;
+                  return (
+                    <p style={{ margin:0, fontSize:12, color:"#888" }}>
+                      {allKeys.length} day{allKeys.length !== 1 ? "s" : ""} planned
+                    </p>
+                  );
+                })()}
+              </div>
+              <button onClick={generateList} disabled={listLoading} style={styles.outlineBtn}>
+                {listLoading ? "⏳ Refreshing…" : "↺ Refresh"}
+              </button>
+            </div>
+
+            {Object.keys(shoppingList).length === 0 && !listLoading && (() => {
+              const hasMeals = Object.values(weekPlan).some(meals => meals?.length > 0);
+              return hasMeals ? (
+                <div style={styles.emptyState}>
+                  <p style={{ fontSize:40 }}>🛒</p>
+                  <p style={{ fontWeight:700, fontSize:17, margin:"0 0 6px" }}>Ready to build your list?</p>
+                  <p style={{ fontSize:13, opacity:.6, margin:"0 0 20px" }}>Foodie will combine all your ingredients, subtract what's in your pantry, and group everything by category.</p>
+                  <button onClick={generateList} style={{ ...styles.primaryBtn, padding:"12px 28px", fontSize:15, boxShadow:"0 4px 14px rgba(34,134,58,0.3)" }}>
+                    ✦ Generate Shopping List
+                  </button>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={{ fontSize:40 }}>🍽</p>
+                  <p style={{ fontWeight:700, fontSize:17, margin:"0 0 6px" }}>No meals planned yet</p>
+                  <p style={{ fontSize:13, opacity:.6, margin:"0 0 20px" }}>Add some meals to your planner first, then come back to generate your shopping list.</p>
+                  <button onClick={() => setActiveTab("planner")} style={{ ...styles.primaryBtn, padding:"12px 28px", fontSize:15 }}>
+                    Go to Planner
+                  </button>
+                </div>
+              );
+            })()}
+
+            {Object.keys(shoppingList).length > 0 && (() => {
+              const totalItems = Object.values(shoppingList).flat().filter(i => !i.inPantry).length + manualItems.length;
+              const checkedCount = Object.keys(checkedItems).filter(k => checkedItems[k]).length;
+              return checkedCount === 0 ? null : checkedCount === totalItems ? (
+                <div style={{ marginBottom:12, padding:"16px", background:"#f0fdf4", borderRadius:12, border:"2px solid #22c55e", textAlign:"center" }}>
+                  <div style={{ fontSize:36, marginBottom:6 }}>🎉</div>
+                  <p style={{ margin:"0 0 4px", fontWeight:800, fontSize:16, color:"#166534" }}>You're all set!</p>
+                  <p style={{ margin:"0 0 12px", fontSize:13, color:"#4ade80" }}>All {totalItems} items checked off</p>
+                  <button onClick={clearChecked} style={{ background:"#22c55e", border:"none", borderRadius:20, padding:"6px 18px", fontSize:12, fontWeight:700, color:"#fff", cursor:"pointer" }}>Start fresh</button>
+                </div>
+              ) : (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12, padding:"8px 14px", background:"#f0fdf4", borderRadius:10, border:"1px solid #bbf7d0" }}>
+                  <span style={{ fontSize:13, color:"#166534", fontWeight:600 }}>✓ {checkedCount} of {totalItems} items checked</span>
+                  <button onClick={clearChecked} style={{ fontSize:12, color:"#16a34a", background:"none", border:"none", cursor:"pointer", fontWeight:600 }}>Clear all</button>
+                </div>
+              );
+            })()}
+
+            {/* Manual items */}
+            <div style={{ marginBottom:20 }}>
+              <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                <input
+                  value={manualInput}
+                  onChange={e => setManualInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && addManualItem()}
+                  placeholder="Add any item (e.g. dish soap, paper towels)…"
+                  style={{ ...styles.inputSm, flex:1 }}
+                />
+                <button onClick={addManualItem} style={{ ...styles.primaryBtn, padding:"7px 14px", flexShrink:0 }}>+ Add</button>
+              </div>
+              {manualItems.length > 0 && (
+                <div>
+                  <h3 style={styles.catHeader}>🛒 Other Items</h3>
+                  {manualItems.map(item => {
+                    const itemKey = `manual::${item.id}`;
+                    const checked = !!checkedItems[itemKey];
+                    return (
+                      <div key={item.id} style={{ ...styles.listItem, opacity: checked ? 0.45 : 1, transition:"opacity 0.25s" }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, flex:1 }}>
+                          <div className={`check-circle${checked ? " checked" : ""}`}
+                            onClick={() => toggleShoppingItem("manual", item.id)}>
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                              <path d="M2.5 7L5.5 10L11.5 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </div>
+                          <span style={{ fontWeight:500, textDecoration: checked ? "line-through" : "none", color: checked ? "#aaa" : "inherit" }}>
+                            {item.name}
+                          </span>
+                        </div>
+                        <button onClick={() => removeManualItem(item.id)} style={styles.iconBtn}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {Object.entries(shoppingList).map(([cat, items]) => (
+              <div key={cat} style={{ marginBottom:20 }}>
+                <h3 style={styles.catHeader}>{cat}</h3>
+                {items.map((item, i) => {
+                  const itemKey = `${cat}::${item.name}`;
+                  const checked = !!checkedItems[itemKey];
+                  const inPantry = item.inPantry;
+                  return (
+                  <div key={i} style={{ ...styles.listItem, opacity: checked ? 0.45 : inPantry ? 0.6 : 1, transition:"opacity 0.25s", background: inPantry ? "#f0fdf4" : styles.listItem.background, border: inPantry ? "1px solid #bbf7d0" : styles.listItem.border }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
+                      <div className={`check-circle${checked || inPantry ? " checked" : ""}`}
+                        onClick={() => !inPantry && toggleShoppingItem(cat, item.name)}
+                        style={{ cursor: inPantry ? "default" : "pointer", background: inPantry ? "#22c55e" : undefined, borderColor: inPantry ? "#22c55e" : undefined }}>
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                          <path d="M2.5 7L5.5 10L11.5 4" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                      <span style={{ display:"flex", alignItems:"center", gap:7, fontWeight:500, textDecoration: checked || inPantry ? "line-through" : "none", color: checked || inPantry ? "#aaa" : "inherit" }}>
+                        {getIngredientEmoji(item.name) && <span style={{ fontSize:18, lineHeight:1 }}>{getIngredientEmoji(item.name)}</span>}
+                        {item.name}
+                        {inPantry && <span style={{ fontSize:10, fontWeight:700, color:"#16a34a", background:"#dcfce7", border:"1px solid #bbf7d0", borderRadius:6, padding:"1px 5px", marginLeft:4 }}>🧺 in pantry</span>}
+                      </span>
+                    </div>
+                    <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ ...styles.listQty, color: checked ? "#bbb" : undefined }}>{(() => { const n = parseFloat(item.qty); return isNaN(n) ? item.qty : (n % 1 === 0 ? n : n.toFixed(1)); })()} {item.unit}</span>
+                      {item.fromPantry && <span style={styles.pantryBadge}>in pantry</span>}
+                      {item.partial && <span style={styles.pantryBadge}>partial pantry</span>}
+                    </div>
+                  </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* ── Pantry Section ── */}
+            <div style={{ marginTop:28, borderTop:"2px solid #f0f0f0", paddingTop:20 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                <h3 style={{ margin:0, fontSize:16, fontWeight:700 }}>🧺 My Pantry</h3>
+                <span style={{ fontSize:12, color:"#aaa" }}>Items here are excluded from your shopping list</span>
+              </div>
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                <input placeholder="e.g. olive oil, salt, garlic…" value={newPantryItem.name}
+                  onChange={e => setNewPantryItem(p => ({ ...p, name: e.target.value }))}
+                  onKeyDown={e => e.key === "Enter" && addPantryItem()}
+                  style={{ ...styles.inputSm, flex:1 }} />
+                <button onClick={addPantryItem} style={styles.primaryBtn}>Add</button>
+              </div>
+              {pantry.length === 0 ? (
+                <p style={{ color:"#bbb", fontSize:13, textAlign:"center", padding:"12px 0" }}>No pantry items yet. Check 🧺 on any ingredient in the planner to add it here.</p>
+              ) : (
+                <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+                  {pantry.map(item => (
+                    <div key={item.id} style={{ display:"flex", alignItems:"center", gap:6, background:"#f0fdf4", border:"1px solid #bbf7d0", borderRadius:20, padding:"4px 10px 4px 12px" }}>
+                      <span style={{ fontSize:13, fontWeight:500, color:"#166534" }}>{item.name}</span>
+                      <button onClick={() => setPantry(p => p.filter(i => i.id !== item.id))}
+                        style={{ background:"none", border:"none", cursor:"pointer", color:"#aaa", fontSize:14, lineHeight:1, padding:"0 0 0 2px" }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+
+          </div>
+        )}
+      </main>
+    </div></ErrorBoundary>
+  );
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+const C = {
+  green: "#22863a", greenDark:"#1a6830", greenLight:"#e6f4ea", greenMid:"#b7dfbf",
+  ink: "#1c1c1e", inkMid:"#555", inkLight:"#888", inkFaint:"#bbb",
+  surface:"#ffffff", surfaceAlt:"#f9fafb", border:"#e5e7eb", borderLight:"#f0f0f0",
+  amber:"#d97706", amberLight:"#fef3c7",
+  blue:"#2563eb", blueLight:"#eff6ff",
+  rose:"#e11d48", roseLight:"#fff1f2",
+  purple:"#7c3aed", purpleLight:"#f5f3ff",
+  shadow: "0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04)",
+  shadowMd: "0 4px 16px rgba(0,0,0,.10)",
+  shadowLg: "0 8px 40px rgba(0,0,0,.15)",
+};
+
+const styles = {
+  app: { fontFamily:"'Inter','DM Sans','Helvetica Neue',sans-serif", background:"#f3f4f6", minHeight:"100vh", color:C.ink },
+
+  // Header
+  header: { background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0" },
+  headerInner: { maxWidth:1000, margin:"0 auto", padding:"14px 24px", display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10 },
+  logoWrap: { display:"flex", alignItems:"center", gap:10 },
+  logoIcon: { width:38, height:38, background:"linear-gradient(135deg, #bbf7d0, #86efac)", borderRadius:10, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(134,239,172,.4)" },
+  logo: { margin:0, fontSize:22, fontWeight:800, letterSpacing:"-1px", color:"#0f172a" },
+  tagline: { margin:"1px 0 0", fontSize:12, color:C.inkLight },
+  stats: { display:"flex", gap:8, flexWrap:"wrap" },
+  stat: { background:C.greenLight, color:C.greenDark, padding:"5px 12px", borderRadius:20, fontSize:12, fontWeight:600, letterSpacing:"-.01em" },
+
+  // Nav
+  nav: { background:C.surface, borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"center", gap:24, overflowX:"auto" },
+  tab: { padding:"14px 22px", border:"none", background:"none", cursor:"pointer", fontSize:14, color:C.inkMid, fontWeight:500, borderBottom:"2px solid transparent", whiteSpace:"nowrap", transition:"color .15s" },
+  tabActive: { color:C.green, borderBottomColor:C.green, fontWeight:700 },
+
+  // Layout
+  main: { maxWidth:1000, margin:"0 auto", padding:"24px" },
+  section: { background:C.surface, borderRadius:16, padding:24, boxShadow:C.shadow },
+  sectionTitle: { margin:"0 0 2px", fontSize:22, fontWeight:800, letterSpacing:"-.02em" },
+
+  // Day bar
+  dayBar: { display:"flex", gap:8, marginBottom:20, overflowX:"auto", paddingBottom:4, justifyContent:"center" },
+  dayBtn: { display:"flex", flexDirection:"column", alignItems:"center", padding:"10px 14px", borderRadius:12, border:`1.5px solid ${C.border}`, background:C.surface, cursor:"pointer", minWidth:66, gap:2, transition:"all .15s", boxShadow:C.shadow },
+  dayBtnActive: { background:C.green, color:"#fff", borderColor:C.green, boxShadow:`0 4px 12px rgba(34,134,58,.3)` },
+  dayCount: { fontSize:18, fontWeight:800 },
+
+  // Meal card
+  mealCard: { border:`1.5px solid ${C.border}`, borderRadius:14, marginBottom:12, background:C.surface, boxShadow:C.shadow, overflow:"visible", transition:"box-shadow .15s" },
+  mealCardHeader: { display:"flex", alignItems:"center", gap:8, padding:"13px 14px", cursor:"pointer", userSelect:"none" },
+  mealCardBody: { padding:"0 16px 16px", borderTop:`1px solid ${C.borderLight}`, borderBottomLeftRadius:14, borderBottomRightRadius:14, overflow:"hidden" },
+  expandChevron: { width:32, height:32, borderRadius:10, background:C.greenLight, border:`1.5px solid ${C.greenMid}`, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"transform .2s, background .15s", cursor:"pointer", boxShadow:"0 1px 3px rgba(34,134,58,.15)" },
+
+  // Buttons
+  primaryBtn: { padding:"9px 18px", background:C.green, color:"#fff", border:"none", borderRadius:9, cursor:"pointer", fontWeight:600, fontSize:14, letterSpacing:"-.01em", transition:"background .15s" },
+  outlineBtn: { padding:"9px 18px", background:C.surface, color:C.green, border:`1.5px solid ${C.green}`, borderRadius:9, cursor:"pointer", fontWeight:600, fontSize:14 },
+  duplicateBtn: { padding:"6px 11px", background:C.greenLight, border:`1px solid ${C.greenMid}`, borderRadius:8, cursor:"pointer", fontSize:12, color:C.greenDark, fontWeight:600, whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:4 },
+  iconBtn: { background:"none", border:"none", cursor:"pointer", fontSize:15, padding:"4px 7px", color:C.inkFaint, borderRadius:6, transition:"color .1s, background .1s" },
+  smallBtn: { padding:"5px 11px", border:`1px solid ${C.border}`, borderRadius:7, cursor:"pointer", fontSize:12, background:C.surface, color:C.inkMid, fontWeight:500 },
+
+  // Inputs
+  inputSm: { padding:"8px 11px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:13, outline:"none", background:C.surface, color:C.ink, transition:"border-color .15s" },
+  selectSm: { padding:"7px 10px", border:`1.5px solid ${C.border}`, borderRadius:8, fontSize:12, outline:"none", background:C.surface, color:C.inkMid, fontWeight:500, cursor:"pointer", appearance:"none", WebkitAppearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center", paddingRight:28, transition:"border-color .15s" },
+
+  // Badges
+  badge: { fontSize:11, background:C.surfaceAlt, color:C.inkMid, padding:"3px 9px", borderRadius:20, fontWeight:500, border:`1px solid ${C.border}` },
+  slotBadgeColors: {
+    "Breakfast": { bg:"#fef9c3", color:"#854d0e" },
+    "Snack":     { bg:"#ffedd5", color:"#9a3412" },
+    "Lunch":     { bg:"#dcfce7", color:"#166534" },
+    "Dinner":    { bg:"#dbeafe", color:"#1e40af" },
+    "Dessert":   { bg:"#fce7f3", color:"#9d174d" },
+  },
+
+  // Misc
+  label: { fontSize:11, fontWeight:700, color:C.inkLight, textTransform:"uppercase", letterSpacing:".06em" },
+  emptyState: { textAlign:"center", padding:"48px 20px", color:C.inkLight, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", width:"100%" },
+
+  // Pantry
+  pantryCard: { display:"flex", justifyContent:"space-between", alignItems:"center", padding:13, border:`1px solid ${C.border}`, borderRadius:11, background:C.surfaceAlt },
+
+  // Shopping list
+  catHeader: { fontSize:12, fontWeight:700, textTransform:"uppercase", letterSpacing:".06em", color:C.inkLight, margin:"0 0 8px", paddingBottom:7, borderBottom:`1px solid ${C.borderLight}`, display:"flex", alignItems:"center", gap:6 },
+  listItem: { display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${C.borderLight}` },
+  listQty: { marginLeft:"auto", fontWeight:700, color:C.green, fontSize:14, background:C.greenLight, padding:"2px 9px", borderRadius:20 },
+  pantryBadge: { fontSize:11, background:C.greenLight, color:C.greenDark, padding:"2px 8px", borderRadius:10, fontWeight:500 },
+
+  // Store / tips
+
+
+    tip: { padding:"7px 0", fontSize:13, color:"#78350f", borderBottom:"1px solid #fde68a", display:"flex", alignItems:"flex-start", gap:8, lineHeight:1.5 },
+
+  // Modal
+  modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,.5)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:1000, padding:20, backdropFilter:"blur(2px)" },
+  modal: { background:C.surface, borderRadius:18, padding:26, width:"100%", maxWidth:420, boxShadow:C.shadowLg },
+  dayPill: { padding:"7px 16px", borderRadius:20, border:`1.5px solid ${C.border}`, background:C.surface, cursor:"pointer", fontSize:13, fontWeight:500, transition:"all .12s" },
+  dayPillActive: { background:C.green, color:"#fff", borderColor:C.green },
+
+  // Nutrition
+  nutritionBox: { marginTop:16, padding:14, background:"#fffbeb", border:"1px solid #fde68a", borderRadius:12 },
+  nutritionGrid: { display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(88px, 1fr))", gap:8, marginTop:10 },
+  nutrientCard: { background:C.surface, border:`1px solid ${C.border}`, borderRadius:10, padding:"9px 8px", textAlign:"center", boxShadow:C.shadow },
+
+  // Chat
+  chatBox: { marginTop:16, padding:14, background:"#f8f7ff", border:"1px solid #e0ddf8", borderRadius:12 },
+  chatMessages: { maxHeight:210, overflowY:"auto", display:"flex", flexDirection:"column", gap:8, marginBottom:6, paddingRight:2 },
+  chatBubble: { padding:"9px 13px", borderRadius:12, fontSize:13, lineHeight:1.55, maxWidth:"82%", wordBreak:"break-word" },
+  chatBubbleAi: { background:C.surface, border:`1px solid ${C.border}`, color:C.ink, alignSelf:"flex-start", borderBottomLeftRadius:4 },
+  chatBubbleUser: { background:C.green, color:"#fff", alignSelf:"flex-end", borderBottomRightRadius:4 },
+  suggestionDropdown: { position:"absolute", top:"calc(100% + 4px)", left:0, right:0, background:"#fff", border:"1px solid #e5e7eb", borderRadius:10, boxShadow:"0 8px 24px rgba(0,0,0,.12)", zIndex:500, overflow:"hidden" },
+  suggestionHeader: { padding:"7px 12px 5px", fontSize:11, fontWeight:700, color:"#aaa", textTransform:"uppercase", letterSpacing:".05em", borderBottom:"1px solid #f0f0f0" },
+  suggestionItem: { padding:"9px 12px", fontSize:13, cursor:"pointer", color:"#1c1c1e", transition:"background .1s" },
+};
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
 </html>
